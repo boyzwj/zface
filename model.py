@@ -34,7 +34,7 @@ class Zface(pl.LightningModule):
         self.preview_num = cfg["preview_num"]
 
 
-        self.G = HififaceGenerator()
+        self.G = HififaceGenerator(activation=cfg["activation"])
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224','tf_efficientnet_lite0'])
         self.upsample = torch.nn.Upsample(scale_factor=4).eval()
 
@@ -58,7 +58,7 @@ class Zface(pl.LightningModule):
         return img
 
     
-
+    @torch.no_grad()
     def process_cmd(self):
         if self.s2c is None:
             return
@@ -93,7 +93,7 @@ class Zface(pl.LightningModule):
 
         if self.src_img == None:
             self.src_img = I_source[:3]
-            self.dst_img = I_target[-3:]
+            self.dst_img = I_target[:3]
             
         self.process_cmd()
 
@@ -189,10 +189,10 @@ class Zface(pl.LightningModule):
             ])
         # dataset = HifiFaceParsingTrainDataset(["../../FFHQ/imgs/"])
         dataset = MultiResolutionDataset("../../FFHQ/ffhq/",transform=transform,resolution=self.size)
-        num_workers = 8
+        num_workers = 4
         persistent_workers = True
         if(platform.system()=='Windows'):
             num_workers = 0
             persistent_workers = False
-        return DataLoader(dataset, batch_size=self.batch_size, num_workers=num_workers, shuffle=True,persistent_workers=persistent_workers, drop_last=True)
+        return DataLoader(dataset, batch_size=self.batch_size,pin_memory=True,num_workers=num_workers, shuffle=True,persistent_workers=persistent_workers, drop_last=True)
 

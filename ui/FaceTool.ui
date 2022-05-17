@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1350</width>
-    <height>842</height>
+    <width>1487</width>
+    <height>1069</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -17,8 +17,8 @@
    <widget class="QPushButton" name="pushButton">
     <property name="geometry">
      <rect>
-      <x>1170</x>
-      <y>740</y>
+      <x>1290</x>
+      <y>930</y>
       <width>121</width>
       <height>31</height>
      </rect>
@@ -32,8 +32,8 @@
      <rect>
       <x>10</x>
       <y>10</y>
-      <width>851</width>
-      <height>791</height>
+      <width>1051</width>
+      <height>1021</height>
      </rect>
     </property>
     <layout class="QGridLayout" name="gridLayout">
@@ -58,8 +58,8 @@
    <widget class="QLabel" name="label">
     <property name="geometry">
      <rect>
-      <x>1150</x>
-      <y>702</y>
+      <x>1270</x>
+      <y>822</y>
       <width>81</width>
       <height>20</height>
      </rect>
@@ -80,8 +80,8 @@
     </property>
     <property name="geometry">
      <rect>
-      <x>870</x>
-      <y>650</y>
+      <x>1160</x>
+      <y>720</y>
       <width>71</width>
       <height>16</height>
      </rect>
@@ -99,8 +99,8 @@
    <widget class="QPushButton" name="refreshButton">
     <property name="geometry">
      <rect>
-      <x>880</x>
-      <y>590</y>
+      <x>1160</x>
+      <y>670</y>
       <width>75</width>
       <height>23</height>
      </rect>
@@ -109,27 +109,11 @@
      <string>刷新向量</string>
     </property>
    </widget>
-   <widget class="QLabel" name="infoLabel">
-    <property name="geometry">
-     <rect>
-      <x>880</x>
-      <y>20</y>
-      <width>191</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>**********</string>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-   </widget>
    <widget class="QCheckBox" name="resumeCheck">
     <property name="geometry">
      <rect>
-      <x>1050</x>
-      <y>700</y>
+      <x>1330</x>
+      <y>860</y>
       <width>61</width>
       <height>20</height>
      </rect>
@@ -144,20 +128,20 @@
    <widget class="QSpinBox" name="sbBatchSize">
     <property name="geometry">
      <rect>
-      <x>1240</x>
-      <y>700</y>
+      <x>1360</x>
+      <y>820</y>
       <width>42</width>
       <height>22</height>
      </rect>
     </property>
     <property name="minimum">
-     <number>4</number>
+     <number>1</number>
     </property>
     <property name="maximum">
      <number>512</number>
     </property>
     <property name="singleStep">
-     <number>4</number>
+     <number>1</number>
     </property>
     <property name="value">
      <number>32</number>
@@ -166,8 +150,8 @@
    <widget class="QSpinBox" name="sbPreview">
     <property name="geometry">
      <rect>
-      <x>930</x>
-      <y>690</y>
+      <x>1190</x>
+      <y>770</y>
       <width>42</width>
       <height>22</height>
      </rect>
@@ -188,8 +172,8 @@
    <widget class="QLabel" name="label_2">
     <property name="geometry">
      <rect>
-      <x>873</x>
-      <y>690</y>
+      <x>1120</x>
+      <y>770</y>
       <width>61</width>
       <height>21</height>
      </rect>
@@ -201,8 +185,8 @@
    <widget class="QSpinBox" name="sbImageSize">
     <property name="geometry">
      <rect>
-      <x>1240</x>
-      <y>660</y>
+      <x>1360</x>
+      <y>780</y>
       <width>42</width>
       <height>22</height>
      </rect>
@@ -220,8 +204,8 @@
    <widget class="QLabel" name="label_3">
     <property name="geometry">
      <rect>
-      <x>1140</x>
-      <y>660</y>
+      <x>1260</x>
+      <y>780</y>
       <width>91</width>
       <height>20</height>
      </rect>
@@ -239,8 +223,8 @@
    <widget class="QLabel" name="label_4">
     <property name="geometry">
      <rect>
-      <x>1150</x>
-      <y>620</y>
+      <x>1270</x>
+      <y>740</y>
       <width>81</width>
       <height>21</height>
      </rect>
@@ -258,8 +242,8 @@
    <widget class="QSpinBox" name="sbLatentDim">
     <property name="geometry">
      <rect>
-      <x>1240</x>
-      <y>620</y>
+      <x>1360</x>
+      <y>740</y>
       <width>61</width>
       <height>22</height>
      </rect>
@@ -283,8 +267,8 @@
    <widget class="QLabel" name="label_5">
     <property name="geometry">
      <rect>
-      <x>1140</x>
-      <y>580</y>
+      <x>1260</x>
+      <y>700</y>
       <width>91</width>
       <height>21</height>
      </rect>
@@ -302,8 +286,8 @@
    <widget class="QLineEdit" name="sbLearningRate">
     <property name="geometry">
      <rect>
-      <x>1240</x>
-      <y>580</y>
+      <x>1360</x>
+      <y>700</y>
       <width>61</width>
       <height>21</height>
      </rect>
@@ -315,8 +299,8 @@
    <widget class="QLineEdit" name="sbTrainName">
     <property name="geometry">
      <rect>
-      <x>1240</x>
-      <y>500</y>
+      <x>1360</x>
+      <y>620</y>
       <width>81</width>
       <height>20</height>
      </rect>
@@ -328,8 +312,8 @@
    <widget class="QLabel" name="label_6">
     <property name="geometry">
      <rect>
-      <x>1170</x>
-      <y>500</y>
+      <x>1290</x>
+      <y>620</y>
       <width>61</width>
       <height>20</height>
      </rect>
@@ -344,8 +328,8 @@
    <widget class="QLabel" name="label_7">
     <property name="geometry">
      <rect>
-      <x>1180</x>
-      <y>544</y>
+      <x>1300</x>
+      <y>664</y>
       <width>54</width>
       <height>12</height>
      </rect>
@@ -360,8 +344,8 @@
    <widget class="QLineEdit" name="sbDataset">
     <property name="geometry">
      <rect>
-      <x>1240</x>
-      <y>540</y>
+      <x>1360</x>
+      <y>660</y>
       <width>61</width>
       <height>20</height>
      </rect>
@@ -376,7 +360,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1350</width>
+     <width>1487</width>
      <height>23</height>
     </rect>
    </property>

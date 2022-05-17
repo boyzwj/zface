@@ -164,11 +164,12 @@ class MultiResolutionDataset(Dataset):
             t_idx = random.randrange(l)
         else:
             t_idx = idx    
-            
+        Xs = self.transform(Xs)    
         if t_idx == idx:
             same_person = 1
-            Xt = Xs.copy()
+            Xt = Xs.detach().clone()
         else:
             same_person = 0 
             Xt = self.get_img(t_idx)  
-        return self.transform(Xs), self.transform(Xt), same_person
+            Xt = self.transform(Xt)
+        return Xs, Xt, same_person

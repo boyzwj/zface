@@ -166,12 +166,12 @@ class ShapeAwareIdentityExtractor(nn.Module):
         return v_sid, coeff_dict_fuse
 
     def get_id(self, I):
-        v_id = self.F_id(F.interpolate(I, 112, mode='bilinear', align_corners=True))
+        v_id = self.F_id(F.interpolate(I[:, :, 32:480, 32:480], [112,112], mode='bilinear', align_corners=True))
         v_id = F.normalize(v_id)
         return v_id
 
     def get_coeff3d(self, I):
-        coeffs = self.net_recon(I*0.5+0.5)
+        coeffs = self.net_recon(I[:, :, 32:480, 32:480]*0.5+0.5)
         coeff_dict = self.facemodel.split_coeff(coeffs)
 
         return coeff_dict
@@ -285,26 +285,24 @@ class SemanticFacialFusionModule(nn.Module):
         with torch.no_grad():
             size = I.size()[-1]
             parsing = self.segmentation_net(F.interpolate(I, size=(512,512), mode='bilinear', align_corners=True)).max(1)[1]
-            mask1 = torch.where((parsing>0)&(parsing<14), 1, 0)
-            mask1 = F.interpolate(mask1.unsqueeze(1).float(), size=(size,size), mode='nearest')
-            mask1 = self.blur(mask1)
-
-
-            mask2 = torch.where(((parsing>0)&(parsing<6))|((parsing>6)&(parsing<14)), 1, 0)
-            mask2 = F.interpolate(mask2.unsqueeze(1).float(), size=(size,size), mode='nearest')
-            mask2 = self.blur(mask2)
-            mask2 = self.face_pool(mask2)
-        return mask1, mask2
+            mask = torch.where((parsing>0)&(parsing<14), 1, 0)
+            mask = F.interpolate(mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
+            mask = self.blur(mask)
+            # mask2 = torch.where(((parsing>0)&(parsing<6))|((parsing>6)&(parsing<14)), 1, 0)
+            # mask2 = F.interpolate(mask2.unsqueeze(1).float(), size=(size,size), mode='nearest')
+            # mask2 = self.blur(mask2)
+            # mask2 = self.face_pool(mask2)
+        return mask
 
 
 
 
     def forward(self, z_enc, z_dec, v_sid, I_target):
 
-        M_high, M_low = self.get_mask(I_target)
-        M_high = M_high.detach()
-        M_low = M_low.detach()
-        # M_low = self.face_pool(M_high)
+        M_high = self.get_mask(I_target).detach()
+        # M_high = M_high.detach()
+        # M_low = M_low.detach()
+        M_low = self.face_pool(M_high)
 
 
         # z_enc 256 64 64
