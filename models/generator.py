@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from models.bfm import ParametricFaceModel
 from models.reconnet import ReconNet
 from torchvision import transforms
-from models.face_models.iresnet import iresnet100
+from models.face_models.iresnet import iresnet100,iresnet50
 from models.faceparser import BiSeNet
 from models.activation import *
 import math
@@ -118,13 +118,9 @@ def weight_init(m):
 class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
-
-        # self.F_id = Backbone(50, 0.6, 'ir_se').eval()
-        # self.F_id.load_state_dict(torch.load('./weights/model_ir_se50.pth'))
-        # self.F_id.eval()
         
-        self.F_id = iresnet100(pretrained=False, fp16=False)
-        self.F_id.load_state_dict(torch.load('./weights/ms1mv3_arcface_r100_fp16_backbone.pth'))
+        self.F_id = iresnet100(pretrained=False, fp16=True)
+        self.F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
         self.F_id.eval()
         
         
@@ -288,10 +284,6 @@ class SemanticFacialFusionModule(nn.Module):
             mask = torch.where((parsing>0)&(parsing<14), 1, 0)
             mask = F.interpolate(mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
             mask = self.blur(mask)
-            # mask2 = torch.where(((parsing>0)&(parsing<6))|((parsing>6)&(parsing<14)), 1, 0)
-            # mask2 = F.interpolate(mask2.unsqueeze(1).float(), size=(size,size), mode='nearest')
-            # mask2 = self.blur(mask2)
-            # mask2 = self.face_pool(mask2)
         return mask
 
 
@@ -300,8 +292,6 @@ class SemanticFacialFusionModule(nn.Module):
     def forward(self, z_enc, z_dec, v_sid, I_target):
 
         M_high = self.get_mask(I_target).detach()
-        # M_high = M_high.detach()
-        # M_low = M_low.detach()
         M_low = self.face_pool(M_high)
 
 

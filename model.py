@@ -39,8 +39,8 @@ class Zface(pl.LightningModule):
         self.upsample = torch.nn.Upsample(scale_factor=4).eval()
 
   
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
    
         self.s2c = s2c
@@ -189,7 +189,7 @@ class Zface(pl.LightningModule):
             ])
         # dataset = HifiFaceParsingTrainDataset(["../../FFHQ/imgs/"])
         dataset = MultiResolutionDataset("../../FFHQ/ffhq/",transform=transform,resolution=self.size)
-        num_workers = 4
+        num_workers = 8
         persistent_workers = True
         if(platform.system()=='Windows'):
             num_workers = 0
