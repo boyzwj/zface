@@ -35,7 +35,8 @@ class Zface(pl.LightningModule):
 
 
         self.G = HififaceGenerator(activation=cfg["activation"])
-        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_small_distilled_patch16_224','tf_efficientnet_lite0'])
+        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
+                                                                    'tf_efficientnet_lite4'])
         self.upsample = torch.nn.Upsample(scale_factor=4).eval()
 
   

@@ -1,3 +1,4 @@
+from operator import mod
 import numpy as np
 import torch
 import torch.nn as nn
@@ -116,8 +117,12 @@ def _make_cspresnet(model):
 
 def _make_efficientnet(model):
     pretrained = nn.Module()
+    # print(model)
     pretrained.layer0 = nn.Sequential(
-        model.conv_stem, model.bn1, model.act1, *model.blocks[0:2]
+        model.conv_stem,
+        model.bn1,
+        # model.act1,
+        *model.blocks[0:2]
     )
     pretrained.layer1 = nn.Sequential(*model.blocks[2:3])
     pretrained.layer2 = nn.Sequential(*model.blocks[3:5])

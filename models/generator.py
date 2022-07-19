@@ -119,8 +119,8 @@ class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
         
-        self.F_id = iresnet50(pretrained=False, fp16=True)
-        self.F_id.load_state_dict(torch.load('./weights/backbone_r50.pth'))
+        self.F_id = iresnet100(pretrained=False, fp16=True)
+        self.F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
         self.F_id.eval()
         
         
@@ -303,14 +303,14 @@ class SemanticFacialFusionModule(nn.Module):
         I_out_low  = self.AdaINResBlock(z_fuse, v_sid) 
 
         # I_low 3 64 64
-        # I_swapped_low = I_out_low[:,:3,...] * M_low.repeat(1, 3, 1, 1) + self.face_pool(I_target) * (1-M_low.repeat(1, 3, 1, 1))
+        I_swapped_low = I_out_low[:,:3,...] * M_low.repeat(1, 3, 1, 1) + self.face_pool(I_target) * (1-M_low.repeat(1, 3, 1, 1))
 
         # I_out_high 3 256 256
         I_out_high, _  = self.F_up(I_out_low[:,3:,...],v_sid)
 
         # I_r 3 256 256
-        # I_swapped_high = I_out_high * M_high.repeat(1, 3, 1, 1) + I_target * (1-M_high.repeat(1, 3, 1, 1))
-        I_swapped_high = I_out_high
+        I_swapped_high = I_out_high * M_high.repeat(1, 3, 1, 1) + I_target * (1-M_high.repeat(1, 3, 1, 1))
+        # I_swapped_high = I_out_high
         I_swapped_low = I_out_low[:,:3,...]
         return I_swapped_high, I_swapped_low
 
