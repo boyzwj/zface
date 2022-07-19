@@ -90,7 +90,7 @@ class HifiFaceParsingTrainDataset(Dataset):
 
 
 class MultiResolutionDataset(Dataset):
-    def __init__(self, path, transform, resolution=256, same_prob=0.2):
+    def __init__(self, path, transform, resolution=256, same_prob=0.5):
         self.path = path
         self.same_prob = same_prob
         self.resolution = resolution

@@ -27,8 +27,8 @@ def trainerThread(cfg, s2c = None, c2s = None):
 
     trainer = Trainer(
             precision=16,
-            amp_backend ="apex", 
-            amp_level='O1',
+            # amp_backend ="apex", 
+            # amp_level='O1',
             callbacks=[checkpoint_callback],
             gpus=1,
             max_epochs=50)

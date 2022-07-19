@@ -35,12 +35,12 @@ class Zface(pl.LightningModule):
 
 
         self.G = HififaceGenerator(activation=cfg["activation"])
-        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224','tf_efficientnet_lite0'])
+        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_small_distilled_patch16_224','tf_efficientnet_lite0'])
         self.upsample = torch.nn.Upsample(scale_factor=4).eval()
 
   
-        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
    
         self.s2c = s2c
@@ -188,7 +188,7 @@ class Zface(pl.LightningModule):
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
         # dataset = HifiFaceParsingTrainDataset(["../../FFHQ/imgs/"])
-        dataset = MultiResolutionDataset("../../FFHQ/ffhq/",transform=transform,resolution=self.size)
+        dataset = MultiResolutionDataset("../../ffhq/",transform=transform,resolution=self.size)
         num_workers = 8
         persistent_workers = True
         if(platform.system()=='Windows'):

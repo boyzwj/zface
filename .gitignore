@@ -14,7 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -131,7 +130,7 @@ dataset/
 lightning_logs/
 previews/
 .qt_for_python/
-check_points/
-BFM/
-weights/
+check_points/*
+BFM/*
+weights/*
 

@@ -119,8 +119,8 @@ class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
         
-        self.F_id = iresnet100(pretrained=False, fp16=True)
-        self.F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
+        self.F_id = iresnet50(pretrained=False, fp16=True)
+        self.F_id.load_state_dict(torch.load('./weights/backbone_r50.pth'))
         self.F_id.eval()
         
         
@@ -162,12 +162,12 @@ class ShapeAwareIdentityExtractor(nn.Module):
         return v_sid, coeff_dict_fuse
 
     def get_id(self, I):
-        v_id = self.F_id(F.interpolate(I[:, :, 32:480, 32:480], [112,112], mode='bilinear', align_corners=True))
+        v_id = self.F_id(F.interpolate(I[:, :, 16:240, 16:240], [112,112], mode='bilinear', align_corners=True))
         v_id = F.normalize(v_id)
         return v_id
 
     def get_coeff3d(self, I):
-        coeffs = self.net_recon(I[:, :, 32:480, 32:480]*0.5+0.5)
+        coeffs = self.net_recon(I[:, :, 16:240, 16:240]*0.5+0.5)
         coeff_dict = self.facemodel.split_coeff(coeffs)
 
         return coeff_dict
@@ -198,9 +198,8 @@ class Encoder(nn.Module):
         self.ResBlock3 = ResBlock(256, 512, downsample=True, norm=norm, activation=activation)
         self.ResBlock4 = ResBlock(512, 512, downsample=True, norm=norm, activation=activation)
         self.ResBlock5 = ResBlock(512, 512, downsample=True, norm=norm, activation=activation)
-        self.ResBlock6 = ResBlock(512, 512, downsample=True, norm=norm, activation=activation)
+        self.ResBlock6 = ResBlock(512, 512, downsample=False, norm=norm, activation=activation)
         self.ResBlock7 = ResBlock(512, 512, downsample=False, norm=norm, activation=activation)
-        self.ResBlock8 = ResBlock(512, 512, downsample=False, norm=norm, activation=activation)
         self.skip = ResBlock(256, 256, downsample=False, norm=norm, activation=activation)
         self.apply(weight_init)
         
@@ -215,7 +214,6 @@ class Encoder(nn.Module):
         y = self.ResBlock5(y) # 512x8x8
         y = self.ResBlock6(y) # 1024x4x4
         y = self.ResBlock7(y) # 1024x4x4
-        y = self.ResBlock8(y) # 1024x4x4
         z = self.skip(x)
         return y, z
 
@@ -226,7 +224,7 @@ class Decoder(nn.Module):
         self.net = nn.ModuleList([
             GenResBlk(512, 512, upsample=False, style_dim=styledim,activation=activation),
             GenResBlk(512, 512, upsample=False, style_dim=styledim,activation=activation),
-            GenResBlk(512, 512, upsample=True, style_dim=styledim,activation=activation),
+            # GenResBlk(512, 512, upsample=True, style_dim=styledim,activation=activation),
             GenResBlk(512, 512, upsample=True, style_dim=styledim,activation=activation),
             GenResBlk(512, 512, upsample=True, style_dim=styledim,activation=activation),
             GenResBlk(512, 256, upsample=True, style_dim=styledim,activation=activation),
@@ -235,7 +233,7 @@ class Decoder(nn.Module):
 
     def forward(self, attr, s):
         y = attr
-        for i in range(6):
+        for i in range(5):
             y = self.net[i](y,s)
         return y
 
@@ -245,9 +243,9 @@ class Decoder(nn.Module):
 class F_up(nn.Module):
     def __init__(self, styledim,activation = 'lrelu'):
         super(F_up, self).__init__()
-        self.block1 = GenResBlk(256, 128, upsample = True, style_dim=styledim,return_rgb=True,activation=activation)
-        self.block2 = GenResBlk(128, 64, upsample = True, style_dim=styledim,return_rgb=True,activation=activation)
-        self.block3 = GenResBlk(64, 64, upsample = False, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block1 = GenResBlk(256, 64, upsample = True, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block2 = GenResBlk(64, 64, upsample = True, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block3 = GenResBlk(64, 16, upsample = False, style_dim=styledim,return_rgb=True,activation=activation)
     def forward(self, x, s,rgb = None):
         x, rgb = self.block1(x, s,rgb)
         x, rgb = self.block2(x, s,rgb)
@@ -267,7 +265,7 @@ class SemanticFacialFusionModule(nn.Module):
         
         self.F_up = F_up(styledim=styledim,activation=activation)
 
-        self.face_pool = nn.AdaptiveAvgPool2d((128, 128)).eval()
+        self.face_pool = nn.AdaptiveAvgPool2d((64, 64)).eval()
 
         # face Segmentation model: HRNet [Sun et al., 2019]
         self.segmentation_net = BiSeNet(n_classes=19).to('cuda')
