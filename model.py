@@ -189,7 +189,7 @@ class Zface(pl.LightningModule):
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
         # dataset = HifiFaceParsingTrainDataset(["../../FFHQ/imgs/"])
-        dataset = MultiResolutionDataset("../../ffhq/",transform=transform,resolution=self.size)
+        dataset = MultiResolutionDataset("../../FFHQ/ffhq/",transform=transform,resolution=self.size)
         num_workers = 8
         persistent_workers = True
         if(platform.system()=='Windows'):

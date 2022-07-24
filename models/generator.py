@@ -1,4 +1,5 @@
 import imp
+from cv2 import log
 from numpy import block
 import torch
 from torch import nn
@@ -11,6 +12,12 @@ from models.faceparser import BiSeNet
 from models.activation import *
 import math
 from models.modulated_conv2d import Conv2DMod, RGBBlock
+
+mean = torch.tensor([0.485, 0.456, 0.406])
+std = torch.tensor([0.229, 0.224, 0.225])
+
+unnormalize = transforms.Normalize((-mean / std).tolist(), (1.0 / std).tolist())
+
 
 def exists(val):
     return val is not None
@@ -268,8 +275,12 @@ class SemanticFacialFusionModule(nn.Module):
         self.face_pool = nn.AdaptiveAvgPool2d((64, 64)).eval()
 
         # face Segmentation model: HRNet [Sun et al., 2019]
-        self.segmentation_net = BiSeNet(n_classes=19).to('cuda')
-        self.segmentation_net.load_state_dict(torch.load('./weights/faceparser.pth', map_location="cuda"))
+        # self.segmentation_net = BiSeNet(n_classes=19).to('cuda')
+        # self.segmentation_net.load_state_dict(torch.load('./weights/faceparser.pth', map_location="cuda"))
+
+        
+        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
+        
         self.segmentation_net.eval()
         for param in self.segmentation_net.parameters():
             param.requires_grad = False
@@ -278,8 +289,12 @@ class SemanticFacialFusionModule(nn.Module):
     def get_mask(self, I):
         with torch.no_grad():
             size = I.size()[-1]
-            parsing = self.segmentation_net(F.interpolate(I, size=(512,512), mode='bilinear', align_corners=True)).max(1)[1]
-            mask = torch.where((parsing>0)&(parsing<14), 1, 0)
+            # parsing = self.segmentation_net(F.interpolate(I, size=(512,512), mode='bilinear', align_corners=True)).max(1)[1]
+            I = unnormalize(I)
+            logit , _  = self.segmentation_net(F.interpolate(I, size=(448,448), mode='bilinear', align_corners=True))
+            parsing = logit.max(1)[1]
+            mask = torch.where((parsing>0)&(parsing<10), 1, 0)
+            # mask = torch.where((parsing>0)&(parsing<14), 1, 0)
             mask = F.interpolate(mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
             mask = self.blur(mask)
         return mask
