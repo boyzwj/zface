@@ -14,6 +14,7 @@ from models.discriminator import ProjectedDiscriminator
 from torch import nn
 from dataset import *
 from loss import *
+from torchvision.transforms.functional import InterpolationMode
 
 class Zface(pl.LightningModule):
     def __init__(self,                 
@@ -34,10 +35,11 @@ class Zface(pl.LightningModule):
         self.preview_num = cfg["preview_num"]
 
 
-        self.G = HififaceGenerator(activation=cfg["activation"])
+        self.G = HififaceGenerator(activation=cfg["activation"],size = self.size)
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
                                                                     'tf_efficientnet_lite4'])
-        self.upsample = torch.nn.Upsample(scale_factor=4).eval()
+        
+        self.upsample = torch.nn.Upsample(scale_factor=int(self.size/64)).eval()
 
   
         # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
@@ -100,7 +102,7 @@ class Zface(pl.LightningModule):
 
         I_swapped_high,I_swapped_low,c_fuse = self.G(I_source, I_target)
         I_swapped_low = self.upsample(I_swapped_low)
-        I_cycle = self.G(I_target,I_swapped_high)[0]
+        I_cycle = self.G(I_swapped_high,I_source)[0]
 
         # Arcface 
         id_source = self.G.SAIE.get_id(I_source)
@@ -185,6 +187,7 @@ class Zface(pl.LightningModule):
         transform = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
+            transforms.RandomRotation(degrees=(-10,10),interpolation=Image.Resampling.BILINEAR),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])

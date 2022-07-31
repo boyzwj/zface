@@ -40,7 +40,7 @@ PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class HifiFaceParsingTrainDataset(Dataset):
-    def __init__(self, dataset_root_list, same_prob=0.5):
+    def __init__(self, dataset_root_list, same_prob=0.2):
         super(HifiFaceParsingTrainDataset, self).__init__()
         self.datasets = []
         self.N = []
