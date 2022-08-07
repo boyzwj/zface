@@ -168,15 +168,15 @@ class ShapeAwareIdentityExtractor(nn.Module):
 
     def get_id(self, I):
         # v_id = self.F_id(F.interpolate(I[:, :, 16:240, 16:240], [112,112], mode='bilinear', align_corners=True))
-        v_id = self.F_id(F.interpolate(I, 112, mode='bilinear', align_corners=True))
+        v_id = self.F_id(F.interpolate(I[:, :, 32:480, 32:480], [112,112], mode='bilinear', align_corners=True))
+        # v_id = self.F_id(F.interpolate(I, 112, mode='bilinear', align_corners=True))
         v_id = F.normalize(v_id)
         return v_id
 
     def get_coeff3d(self, I):
-        # coeffs = self.net_recon(I[:, :, 16:240, 16:240]*0.5+0.5)
-        coeffs = self.net_recon(I*0.5+0.5)
+        coeffs = self.net_recon(I[:, :, 32:480, 32:480]*0.5+0.5)
+        # coeffs = self.net_recon(I*0.5+0.5)
         coeff_dict = self.facemodel.split_coeff(coeffs)
-
         return coeff_dict
 
     def get_lm3d(self, coeff_dict):

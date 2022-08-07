@@ -1,15 +1,20 @@
+from configparser import Interpolation
 from io import BytesIO
+from re import I
 import lmdb
 import os
 import glob
 import random
 import numpy as np
 from pathlib import Path
+from omegaconf import IntegerNode
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 import PIL
-from PIL import Image, ImageFile
+from PIL import Image, ImageFile,ImageFilter
+import imgaug as ia
+import imgaug.augmenters as iaa
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
@@ -88,6 +93,27 @@ class HifiFaceParsingTrainDataset(Dataset):
 
 
 
+def complex_imgaug(x, org_size):
+    """input single RGB PIL Image instance"""
+    scale_size = np.random.randint(128,org_size)
+    x = np.array(x)
+    x = x[np.newaxis, :, :, :]
+    aug_seq = iaa.Sequential([
+            iaa.Sometimes(0.5, iaa.OneOf([
+                iaa.GaussianBlur((1, 7)),
+                iaa.AverageBlur(k=(1, 7)),
+                iaa.MedianBlur(k=(1, 7)),
+                iaa.MotionBlur((3, 7))
+            ])),
+            iaa.Resize(scale_size, interpolation=ia.ALL),
+            iaa.Sometimes(0.2, iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255), per_channel=0.5)),
+            iaa.Sometimes(0.5, iaa.JpegCompression(compression=(50, 75))),
+            iaa.Resize(org_size),
+        ])
+    
+    aug_img = aug_seq(images=x)
+    return Image.fromarray(aug_img[0])
+
 
 class MultiResolutionDataset(Dataset):
     def __init__(self, path, transform, resolution=256, same_prob=0.2):
@@ -154,22 +180,28 @@ class MultiResolutionDataset(Dataset):
             key = f'{self.resolution}-{str(idx).zfill(7)}'.encode('utf-8')
             img_bytes = txn.get(key)
         buffer = BytesIO(img_bytes)
-        img = Image.open(buffer)
+        img = Image.open(buffer)    
         return img
 
     def __getitem__(self, idx):
         Xs = self.get_img(idx)
+        if random.random() > 0.5:
+            Xs = complex_imgaug(Xs,self.resolution)
         l = self.__len__()
         if random.random() > self.same_prob:
             t_idx = random.randrange(l)
         else:
-            t_idx = idx    
-        Xs = self.transform(Xs)    
+            t_idx = idx
+
+        Xs = self.transform(Xs)
+    
         if t_idx == idx:
             same_person = 1
             Xt = Xs.detach().clone()
         else:
             same_person = 0 
-            Xt = self.get_img(t_idx)  
-            Xt = self.transform(Xt)
+            Xt = self.get_img(t_idx)
+            if random.random() > 0.5:
+                Xt = complex_imgaug(Xt,self.resolution)
+            Xt = self.transform(Xt) 
         return Xs, Xt, same_person
