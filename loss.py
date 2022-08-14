@@ -26,8 +26,8 @@ class HifiFaceLoss(LossInterface):
           
         # Shape loss
         if self.W_shape:
-            L_shape = Loss.get_L1_loss(G_dict["q_fuse"], G_dict["q_swapped_high"]) 
-            L_shape += Loss.get_L1_loss(G_dict["q_fuse"], G_dict["q_swapped_low"])
+            L_shape = Loss.get_L2_loss(G_dict["q_fuse"], G_dict["q_swapped_high"]) 
+            L_shape += Loss.get_L2_loss(G_dict["q_fuse"], G_dict["q_swapped_low"])
             L_G += self.W_shape * L_shape/68
             self.loss_dict["L_shape"] = round(L_shape.item(), 4)
 
@@ -53,8 +53,8 @@ class HifiFaceLoss(LossInterface):
 
         # LPIPS loss
         if self.W_lpips:
-            L_lpips = Loss.get_lpips_loss(G_dict["I_swapped_high"], G_dict["I_target"]).mean()
-            L_lpips += Loss.get_lpips_loss(G_dict["I_swapped_low"], G_dict["I_target"]).mean()
+            L_lpips = Loss.get_lpips_loss_with_same_person(G_dict["I_swapped_high"], G_dict["I_target"], G_dict["same_person"], self.batch_size)
+            L_lpips += Loss.get_lpips_loss_with_same_person(G_dict["I_swapped_low"], G_dict["I_target"], G_dict["same_person"], self.batch_size)
             L_G += self.W_lpips * L_lpips
             self.loss_dict["L_lpips"] = round(L_lpips.item(), 4)
 

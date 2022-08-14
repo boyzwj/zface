@@ -42,8 +42,8 @@ class Zface(pl.LightningModule):
         self.upsample = torch.nn.Upsample(scale_factor=int(self.size/64)).eval()
 
   
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
    
         self.s2c = s2c
@@ -85,7 +85,7 @@ class Zface(pl.LightningModule):
     def send_previw(self):
         output = self.G(self.src_img, self.dst_img)[0]
         result =  []
-        for src, dst, out  in zip( self.src_img.cpu() , self.dst_img.cpu() , output.cpu()):
+        for src, dst, out  in zip(self.src_img.cpu(),self.dst_img.cpu(),output.cpu()):
             result = result + [src, dst, out]
         self.c2s.put({'op':"show",'previews': result})
                 
@@ -185,7 +185,6 @@ class Zface(pl.LightningModule):
 
     def train_dataloader(self):
         transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(p=0.5),
             transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
             transforms.RandomRotation(degrees=(-10,10),interpolation=Image.Resampling.BILINEAR),
             transforms.ToTensor(),

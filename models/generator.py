@@ -303,16 +303,13 @@ class SemanticFacialFusionModule(nn.Module):
             logit , _  = self.segmentation_net(F.interpolate(I, size=(448,448), mode='bilinear', align_corners=True))
             parsing = logit.max(1)[1]
             mask = torch.where((parsing>0)&(parsing<10), 1, 0)
-            # mask = torch.where((parsing>0)&(parsing<14), 1, 0)
             mask = F.interpolate(mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
             mask = self.blur(mask)
         return mask
 
 
 
-
     def forward(self, z_enc, z_dec, v_sid, I_target):
-
         M_high = self.get_mask(I_target).detach()
         M_low = self.face_pool(M_high)
 
@@ -326,18 +323,19 @@ class SemanticFacialFusionModule(nn.Module):
         
         I_out_low  = self.AdaINResBlock(z_fuse, v_sid) 
 
+        I_out_high, _  = self.F_up(I_out_low[:,3:,...],v_sid)
+
         # I_low 3 64 64
         I_swapped_low = I_out_low[:,:3,...] * M_low.repeat(1, 3, 1, 1) + self.face_pool(I_target) * (1-M_low.repeat(1, 3, 1, 1))
 
         # I_out_high 3 256 256
-        I_out_high, _  = self.F_up(I_out_low[:,3:,...],v_sid)
 
         # I_r 3 256 256
-        I_swapped_high = I_out_high * M_high.repeat(1, 3, 1, 1) + I_target * (1-M_high.repeat(1, 3, 1, 1))
-        # I_swapped_high = I_out_high
-        I_swapped_low = I_out_low[:,:3,...]
-        return I_swapped_high, I_swapped_low
+        M_high_f = (self.get_mask(I_out_high).detach() + M_high).clamp(0,1)
 
+        I_swapped_high = I_out_high * M_high_f.repeat(1, 3, 1, 1) + I_target * (1-M_high_f.repeat(1, 3, 1, 1))
+
+        return I_swapped_high, I_swapped_low
 
 class HififaceGenerator(nn.Module):
     def __init__(self,activation =  'lrelu', size = 256):
@@ -362,7 +360,6 @@ class HififaceGenerator(nn.Module):
 
         # Semantic Facial Fusion Module
         I_swapped_high, I_swapped_low = self.SFFM(z_enc, z_dec, v_sid, I_t)
-        
         return I_swapped_high, I_swapped_low, coeff_dict_fuse
     
     

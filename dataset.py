@@ -12,7 +12,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 import PIL
-from PIL import Image, ImageFile,ImageFilter
+from PIL import Image, ImageFile,ImageOps
 import imgaug as ia
 import imgaug.augmenters as iaa
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -107,8 +107,8 @@ def complex_imgaug(x, org_size):
             ])),
             iaa.Resize(scale_size, interpolation=ia.ALL),
             iaa.Sometimes(0.2, iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255), per_channel=0.5)),
-            iaa.Sometimes(0.5, iaa.JpegCompression(compression=(50, 75))),
-            iaa.Resize(org_size),
+            iaa.Sometimes(0.5, iaa.JpegCompression(compression=(10, 30))),
+            iaa.Resize(org_size)
         ])
     
     aug_img = aug_seq(images=x)
@@ -116,7 +116,7 @@ def complex_imgaug(x, org_size):
 
 
 class MultiResolutionDataset(Dataset):
-    def __init__(self, path, transform, resolution=256, same_prob=0.2):
+    def __init__(self, path, transform, resolution=256, same_prob=0.5):
         self.path = path
         self.same_prob = same_prob
         self.resolution = resolution
@@ -180,28 +180,32 @@ class MultiResolutionDataset(Dataset):
             key = f'{self.resolution}-{str(idx).zfill(7)}'.encode('utf-8')
             img_bytes = txn.get(key)
         buffer = BytesIO(img_bytes)
-        img = Image.open(buffer)    
+        img = Image.open(buffer)
+        if random.random() < 0.5:
+            img = ImageOps.mirror(img)
         return img
 
     def __getitem__(self, idx):
         Xs = self.get_img(idx)
-        if random.random() > 0.5:
-            Xs = complex_imgaug(Xs,self.resolution)
+
         l = self.__len__()
         if random.random() > self.same_prob:
             t_idx = random.randrange(l)
         else:
             t_idx = idx
 
-        Xs = self.transform(Xs)
-    
         if t_idx == idx:
             same_person = 1
-            Xt = Xs.detach().clone()
+            Xt = Xs.copy()
         else:
             same_person = 0 
             Xt = self.get_img(t_idx)
-            if random.random() > 0.5:
-                Xt = complex_imgaug(Xt,self.resolution)
-            Xt = self.transform(Xt) 
+
+        if random.random() > 0.5:
+            Xs = complex_imgaug(Xs,self.resolution)    
+        if random.random() > 0.5:
+            Xt = complex_imgaug(Xt,self.resolution)
+        Xs = self.transform(Xs)
+        Xt = self.transform(Xt)
+
         return Xs, Xt, same_person
