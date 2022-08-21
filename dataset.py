@@ -63,7 +63,6 @@ class HifiFaceParsingTrainDataset(Dataset):
 
         self.transforms = transforms.Compose([
             transforms.Resize((256,256)),
-            transforms.RandomHorizontalFlip(p=0.5),
             transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
