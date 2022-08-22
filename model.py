@@ -14,6 +14,7 @@ from models.discriminator import ProjectedDiscriminator
 from torch import nn
 from dataset import *
 from loss import *
+from torchvision.transforms.functional import InterpolationMode
 
 
 mean = torch.tensor([0.485, 0.456, 0.406])
@@ -42,14 +43,11 @@ class Zface(pl.LightningModule):
         self.G = HififaceGenerator(activation=cfg["activation"])
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
                                                                     'tf_efficientnet_lite4'])
-        
-        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
-        self.segmentation_net.eval()
-        for param in self.segmentation_net.parameters():
-            param.requires_grad = False
-        self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))  
-        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        self.upsample = torch.nn.Upsample(scale_factor=4).eval()
+
+  
+        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -101,7 +99,7 @@ class Zface(pl.LightningModule):
     def send_previw(self):
         output = self.G.inference(self.src_img, self.dst_img)
         result =  []
-        for src, dst, out  in zip( self.src_img.cpu() , self.dst_img.cpu() , output.cpu()):
+        for src, dst, out  in zip(self.src_img.cpu(),self.dst_img.cpu(),output.cpu()):
             result = result + [src, dst, out]
         self.c2s.put({'op':"show",'previews': result})
                 
@@ -118,12 +116,10 @@ class Zface(pl.LightningModule):
             
         self.process_cmd()
 
-        I_swapped_high, I_swapped_low, mask_high, mask_low, id_source, c_fuse = self.G(I_source, I_target)
-        # print("*********")
-        # print(target_mask)
-        # print("=========")
-        # print(mask_high)
+        I_swapped_high,I_swapped_low,c_fuse = self.G(I_source, I_target)
+        I_swapped_low = self.upsample(I_swapped_low)
         I_cycle = self.G(I_target,I_swapped_high)[0]
+
 
         # Arcface 
         # id_source = self.G.SAIE.get_id(I_source)
@@ -213,6 +209,7 @@ class Zface(pl.LightningModule):
         transform = transforms.Compose([
             transforms.RandomRotation((-10,10),transforms.InterpolationMode.BILINEAR),
             transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
+            transforms.RandomRotation(degrees=(-10,10),interpolation=Image.Resampling.BILINEAR),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])

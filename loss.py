@@ -56,7 +56,7 @@ class HifiFaceLoss(LossInterface):
 
         # Cycle loss
         if self.W_cycle:
-            L_cycle = Loss.get_L1_loss(G_dict["I_target"], G_dict["I_cycle"])
+            L_cycle = Loss.get_L1_loss(G_dict["I_source"], G_dict["I_cycle"])
             L_G += self.W_cycle * L_cycle
             self.loss_dict["L_cycle"] = round(L_cycle.item(), 4)
 

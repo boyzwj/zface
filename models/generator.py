@@ -29,6 +29,8 @@ def set_activate_layer(types):
     # initialize activation
     if types == 'relu':
         activation = nn.ReLU()
+    elif types == 'relu6':
+        activation = nn.ReLU6()
     elif types == 'lrelu':
         activation = nn.LeakyReLU(0.2,inplace=True)
     elif types == 'mish':
@@ -146,13 +148,12 @@ def weight_init(m):
 class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
-        
         self.F_id = iresnet100(pretrained=False, fp16=True)
         self.F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
         self.F_id.eval()
+        
         for param in self.F_id.parameters():
             param.requires_grad = False
-        # self.F_id = torch.jit.script(self.F_id)
         self.net_recon = ReconNet()
         self.net_recon.load_state_dict(torch.load('./weights/epoch_20.pth')['net_recon'])
         self.net_recon.eval()
@@ -192,8 +193,7 @@ class ShapeAwareIdentityExtractor(nn.Module):
         return v_id
 
     def get_coeff3d(self, I):
-        I = F.interpolate(I, size=224, mode='bilinear')
-        coeffs = self.net_recon(I*0.5+0.5)
+        coeffs = self.net_recon(I[:, :, 16:240, 16:240]*0.5+0.5)
         coeff_dict = self.facemodel.split_coeff(coeffs)
         return coeff_dict
 
@@ -215,7 +215,7 @@ class ShapeAwareIdentityExtractor(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, norm='in', activation='lrelu'):
+    def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
         self.FirstConv = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.ResBlock1 = ResBlock(64, 128, down_sample=True,activation=activation)
@@ -244,7 +244,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, styledim=662, activation='lrelu'):
+    def __init__(self, styledim=659, activation='lrelu'):
         super(Decoder, self).__init__()
         self.d1 = GenResBlk(512, 512, up_sample=False, style_dim=styledim,activation=activation)
         self.d2 = GenResBlk(512, 512, up_sample=False, style_dim=styledim,activation=activation)
@@ -253,13 +253,11 @@ class Decoder(nn.Module):
         self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=styledim,activation=activation)
         self.apply(weight_init)
 
-    def forward(self, x, s):
-        x = self.d1(x,s)
-        x = self.d2(x,s)
-        x = self.d3(x,s)
-        x = self.d4(x,s)
-        x = self.d5(x,s)
-        return x
+    def forward(self, attr, s):
+        y = attr
+        for i in range(5):
+            y = self.net[i](y,s)
+        return y
 
 
 
@@ -267,9 +265,9 @@ class Decoder(nn.Module):
 class F_up(nn.Module):
     def __init__(self, styledim,activation = 'lrelu'):
         super(F_up, self).__init__()
-        self.block1 = GenResBlk(256, 64, up_sample = True, style_dim=styledim,return_rgb=True,activation=activation)
-        self.block2 = GenResBlk(64, 32, up_sample = True, style_dim=styledim,return_rgb=True,activation=activation)
-        self.block3 = GenResBlk(32, 16, up_sample = False, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block1 = GenResBlk(256, 64, upsample = True, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block2 = GenResBlk(64, 64, upsample = True, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block3 = GenResBlk(64, 16, upsample = False, style_dim=styledim,return_rgb=True,activation=activation)
     def forward(self, x, s,rgb = None):
         x, rgb = self.block1(x, s,rgb)
         x, rgb = self.block2(x, s,rgb)
@@ -278,43 +276,67 @@ class F_up(nn.Module):
 
 
 
-class UpSamplingBlock(nn.Module):
-    def __init__(self, ):
-        super(UpSamplingBlock, self).__init__()
-        self.net = nn.Sequential(
-            ResBlock(256, 64, up_sample=True),
-            ResBlock(64, 16, up_sample=True),
-            ResBlock(16, 8),
-            ResBlock(8, 4),
-        )
 
-    def forward(self, x):
-        x = self.net(x)
-        m_r, i_r = x[:, 0, ...].unsqueeze(1), x[:, 1:, ...]
-        m_r = torch.tanh(m_r)
-        return i_r, m_r
-    
-class FUpBlock(nn.Module):
-    def __init__(self, ):
-        super(FUpBlock, self).__init__()
-        self.l1 = GenResBlk(256, 64, up_sample=True,return_rgb=True)
-        self.l3 = GenResBlk(64, 16, up_sample=True,return_rgb=True)
-        self.l4 = GenResBlk(16, 1, return_rgb= True)
-
-    def forward(self, x ,s,rgb = None) :
-        x,rgb = self.l1(x,s,rgb)
-        x,rgb = self.l3(x,s,rgb)
-        m_r,i_r = self.l4(x,s,rgb)
-        m_r = torch.sigmoid(m_r)
-        return i_r, m_r    
-    
 class SemanticFacialFusionModule(nn.Module):
-    def __init__(self,activation = 'lrelu'):
+    def __init__(self, norm='in', activation='lrelu', styledim=659):
         super(SemanticFacialFusionModule, self).__init__()
-        self.sigma = ResBlock(256, 256,activation = activation)
-        self.low_mask_predict = ResBlock(256, 1,activation = activation)
-        self.z_fuse_block_n = GenResBlk(256, 256,activation = activation,return_rgb=True)
-        self.f_up_n = FUpBlock()
+
+
+        self.AdaINResBlock = GenResBlk(256, 259, upsample=False, style_dim=styledim,return_rgb = False,activation=activation)
+        
+        
+        self.F_up = F_up(styledim=styledim,activation=activation)
+
+        self.face_pool = nn.AdaptiveAvgPool2d((64, 64)).eval()
+
+        # face Segmentation model: HRNet [Sun et al., 2019]
+        # self.segmentation_net = BiSeNet(n_classes=19).to('cuda')
+        # self.segmentation_net.load_state_dict(torch.load('./weights/faceparser.pth', map_location="cuda"))
+
+        
+        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
+        
+        self.segmentation_net.eval()
+        for param in self.segmentation_net.parameters():
+            param.requires_grad = False
+        self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))
+
+    def get_mask(self, I):
+        with torch.no_grad():
+            size = I.size()[-1]
+            # parsing = self.segmentation_net(F.interpolate(I, size=(512,512), mode='bilinear', align_corners=True)).max(1)[1]
+            I = unnormalize(I)
+            logit , _  = self.segmentation_net(F.interpolate(I, size=(448,448), mode='bilinear', align_corners=True))
+            parsing = logit.max(1)[1]
+            mask = torch.where((parsing>0)&(parsing<10), 1, 0)
+            # mask = torch.where((parsing>0)&(parsing<14), 1, 0)
+            mask = F.interpolate(mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
+            mask = self.blur(mask)
+        return mask
+
+
+
+
+    def forward(self, z_enc, z_dec, v_sid, I_target):
+
+        M_high = self.get_mask(I_target).detach()
+        M_low = self.face_pool(M_high)
+
+
+        # z_enc 256 64 64
+        # z_dec 256 64 64
+        
+        # z_fuse 256 64 64
+        z_fuse = z_dec * M_low.repeat(1, 256, 1, 1) + z_enc * (1-M_low.repeat(1, 256, 1, 1))
+        
+        
+        I_out_low  = self.AdaINResBlock(z_fuse, v_sid) 
+
+        # I_low 3 64 64
+        I_swapped_low = I_out_low[:,:3,...] * M_low.repeat(1, 3, 1, 1) + self.face_pool(I_target) * (1-M_low.repeat(1, 3, 1, 1))
+
+        # I_out_high 3 256 256
+        I_out_high, _  = self.F_up(I_out_low[:,3:,...],v_sid)
 
     def forward(self, target_image, z_enc, z_dec, id_vector):
         z_enc = self.sigma(z_enc)
@@ -329,12 +351,12 @@ class SemanticFacialFusionModule(nn.Module):
 
 
 class HififaceGenerator(nn.Module):
-    def __init__(self,activation =  'lrelu'):
+    def __init__(self,activation =  'lrelu', size = 256):
         super(HififaceGenerator, self).__init__()
         self.SAIE = ShapeAwareIdentityExtractor()
-        self.E = torch.jit.script(Encoder(activation=activation))
-        self.D = Decoder(activation=activation)
         self.SFFM = SemanticFacialFusionModule(activation=activation)
+        self.E = Encoder(activation=activation)
+        self.D = Decoder(activation=activation)
 
     @torch.no_grad()
     def inference(self,I_s,I_t):
@@ -356,9 +378,9 @@ class HififaceGenerator(nn.Module):
         z_dec = self.D(z_latent, v_sid)
 
         # Semantic Facial Fusion Module
-        I_swapped_high, I_swapped_low, mask_high, mask_low = self.SFFM(I_t,z_enc, z_dec, v_sid)
+        I_swapped_high, I_swapped_low = self.SFFM(z_enc, z_dec, v_sid, I_t)
         
-        return I_swapped_high, I_swapped_low, mask_high, mask_low, id_source, coeff_dict_fuse
+        return I_swapped_high, I_swapped_low, coeff_dict_fuse
     
     
 if __name__ == "__main__":

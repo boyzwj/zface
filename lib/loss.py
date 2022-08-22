@@ -68,14 +68,6 @@ class Loss:
             cls.lpips = lpips.LPIPS(net='alex').eval().to("cuda")
         return cls.lpips(a, b)
 
-
-
-    @classmethod
-    def get_lpips_loss_with_same_person(cls, a, b , same_person, batch_per_gpu):
-        if not hasattr(cls, 'lpips'):
-            cls.lpips = lpips.LPIPS(net='alex').eval().to("cuda")
-        return torch.sum(torch.mean(cls.lpips(a, b).reshape(batch_per_gpu, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)
-
     @classmethod
     def get_L1_loss(cls, a, b):   
         return cls.L1(a, b)

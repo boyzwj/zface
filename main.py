@@ -189,8 +189,8 @@ class App(QMainWindow):
 
     def tensor2img(self, tensor, out_type=np.uint8):
         tensor = [unnormalize(t)  for t in tensor]
-        n_img = len(tensor)
-        grid = make_grid(tensor,value_range=(-1,1), nrow=int(math.sqrt(n_img)), normalize=False)
+        # n_img = len(tensor)
+        grid = make_grid(tensor,value_range=(-1,1), nrow=3, normalize=False)
         ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).to('cpu', torch.uint8).numpy()        
         ndarr = np.transpose(ndarr[[2, 1, 0], :, :], (1, 2, 0))  # HWC, BGR
         return ndarr.astype(out_type)
@@ -204,6 +204,7 @@ class App(QMainWindow):
             show1, show.shape[1], show.shape[0], show.shape[1] * 3, QImage.Format_BGR888)
         # qt_img = ImageQt.ImageQt(img)
         self.ui.imgLabel.setPixmap(QPixmap.fromImage(QI))
+        self.ui.imgLabel.adjustSize()
 
     def openimg(self):
         pass

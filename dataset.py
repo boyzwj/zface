@@ -21,11 +21,32 @@ PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 
-class HifiFaceDataset(Dataset):
+#     mask_nose = color_masking(img_numpy, 76, 153, 0)
+#     mask_left_eye = color_masking(img_numpy, 204, 0, 204)
+#     mask_right_eye = color_masking(img_numpy, 51, 51, 255)
+#     mask_skin = color_masking(img_numpy, 204, 0, 0)
+#     mask_left_eyebrow = color_masking(img_numpy, 255, 204, 204)
+#     mask_right_eyebrow = color_masking(img_numpy, 0, 255, 255)
+#     mask_up_lip = color_masking(img_numpy, 255, 255, 0)
+#     mask_mouth_inside = color_masking(img_numpy, 102, 204, 0)
+#     mask_down_lip = color_masking(img_numpy, 0, 0, 153)
+#     mask_left_ear = color_masking(img_numpy, 255, 0, 0)
+#     mask_right_ear = color_masking(img_numpy, 102, 51, 0)
+#     # mask_glass = color_masking(img_numpy, 204, 204, 0)
+
+#     mask_face = logical_or_masks(
+#         [mask_nose, mask_left_eye, mask_right_eye, mask_skin, mask_left_eyebrow, mask_right_eyebrow, mask_up_lip,
+#          mask_mouth_inside, mask_down_lip, mask_left_ear, mask_right_ear, ])
+#     mask_face = 1.0 * mask_face
+#     mask_face = Image.fromarray(np.array(mask_face))
+#     return mask_face
+
+
+class HifiFaceParsingTrainDataset(Dataset):
     def __init__(self, dataset_root_list, same_prob=0.5):
-        super(HifiFaceDataset, self).__init__()
-        self.identity = []
-        self.dict = {}
+        super(HifiFaceParsingTrainDataset, self).__init__()
+        self.datasets = []
+        self.N = []
         self.same_prob = same_prob
         
         for dataset_root in dataset_root_list:
@@ -69,30 +90,9 @@ class HifiFaceDataset(Dataset):
     
 
     def __len__(self):
-        return len(self.identity)
+        return sum(self.N)
 
 
-
-def complex_imgaug(x, org_size):
-    """input single RGB PIL Image instance"""
-    # scale_size = np.random.randint(128,org_size)
-    x = np.array(x)
-    x = x[np.newaxis, :, :, :]
-    aug_seq = iaa.Sequential([
-            # iaa.Sometimes(0.5, iaa.OneOf([
-            #     iaa.GaussianBlur((1, 3)),
-            #     iaa.AverageBlur(k=(1, 3)),
-            #     iaa.MedianBlur(k=(1, 3)),
-            #     iaa.MotionBlur((3, 7))
-            # ])),
-            # iaa.Resize(scale_size, interpolation=ia.ALL),
-            iaa.Sometimes(0.2, iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.02*255), per_channel=0.2)),
-            iaa.Sometimes(0.5, iaa.JpegCompression(compression=(10, 30))),
-            # iaa.Resize(org_size)
-        ])
-    
-    aug_img = aug_seq(images=x)
-    return Image.fromarray(aug_img[0])
 
 
 class MultiResolutionDataset(Dataset):
