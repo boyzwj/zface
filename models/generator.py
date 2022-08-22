@@ -147,8 +147,8 @@ def weight_init(m):
 class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
-        self.F_id = iresnet50(pretrained=False, fp16=True)
-        self.F_id.load_state_dict(torch.load('./weights/backbone_r50.pth'))
+        self.F_id = iresnet100(pretrained=False, fp16=True)
+        self.F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
         self.F_id.eval()
         
         for param in self.F_id.parameters():

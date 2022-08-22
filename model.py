@@ -41,8 +41,8 @@ class Zface(pl.LightningModule):
 
         torch.backends.cudnn.benchmark = True
         self.G = HififaceGenerator(activation=cfg["activation"])
-        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_small_distilled_patch16_224',
-                                                                    'tf_efficientnet_lite1'])
+        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
+                                                                    'tf_efficientnet_lite4'])
 
         self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
         
@@ -52,8 +52,7 @@ class Zface(pl.LightningModule):
         self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))
 
         
-                                                                            
-        self.upsample = torch.nn.Upsample(scale_factor=4).eval()
+                                                                        
 
   
         # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
