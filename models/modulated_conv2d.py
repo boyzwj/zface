@@ -5,14 +5,16 @@ from torch.nn.utils import spectral_norm
 import torch.nn.functional as F
 from kornia.filters import filter2d
 
-def add_spectral_norm(m, use_spectral_norm):
-  if not use_spectral_norm:
-    return m
-  return spectral_norm(m)
+def make_kernel(k):
+    k = torch.tensor(k, dtype=torch.float32)
 
+    if k.ndim == 1:
+        k = k[None, :] * k[:, None]
 
-def exists(val):
-    return val is not None
+    k /= k.sum()
+
+    return k
+
 
 class Blur(nn.Module):
     def __init__(self):
@@ -24,11 +26,41 @@ class Blur(nn.Module):
         f = f[None, None, :] * f [None, :, None]
         return filter2d(x, f, normalized=True)
 
-# !!! Don't forget this, because of demodulation mode.
-# def forward(self, x, output, style)
-# x = ...
-# output = self.toOutput(x, prev_output, style)
-# return x, output
+
+# class Upsample(nn.Module):
+#     def __init__(self, kernel, factor=2):
+#         super().__init__()
+
+#         self.factor = factor
+#         kernel = make_kernel(kernel) * (factor ** 2)
+#         self.register_buffer("kernel", kernel)
+
+#         p = kernel.shape[0] - factor
+
+#         pad0 = (p + 1) // 2 + factor - 1
+#         pad1 = p // 2
+
+#         self.pad = (pad0, pad1)
+
+#     def forward(self, input):
+#         out = upfirdn2d(input, self.kernel, up=self.factor, down=1, pad=self.pad)
+
+#         return out    
+
+
+
+def add_spectral_norm(m, use_spectral_norm):
+  if not use_spectral_norm:
+    return m
+  return spectral_norm(m)
+
+
+def exists(val):
+    return val is not None
+
+
+
+
 class OutputBlockSumAndUpsample(nn.Module):
     def __init__(self, latent_dim, input_channel, upsample, num_outputs = 3, use_spectral_norm=False):
         super().__init__()
@@ -66,7 +98,6 @@ class RGBBlock(OutputBlockSumAndUpsample):
             else:
                 x = x + prev_output
         return x 
-
 
 
 # from https://github.com/lucidrains/stylegan2-pytorch/blob/05f7585e8da9c09752696872e04de0414a972486/stylegan2_pytorch/stylegan2_pytorch.py
@@ -112,3 +143,4 @@ class Conv2DMod(nn.Module):
             f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]},"
             f" {self.weight.shape[2]}, stride={self.stride}, dilation={self.dilation}, demodulation={self.demod})"
         )
+    

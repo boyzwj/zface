@@ -1,96 +1,102 @@
+from configparser import Interpolation
 from io import BytesIO
+from re import I
 import lmdb
 import os
 import glob
 import random
 import numpy as np
 from pathlib import Path
+from omegaconf import IntegerNode
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 import PIL
-from PIL import Image, ImageFile
+from PIL import Image, ImageFile,ImageOps
+import imgaug as ia
+import imgaug.augmenters as iaa
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 
 
-# def parsing2mask(paring):
-#     img_numpy = np.array(paring)
 
-#     mask_nose = color_masking(img_numpy, 76, 153, 0)
-#     mask_left_eye = color_masking(img_numpy, 204, 0, 204)
-#     mask_right_eye = color_masking(img_numpy, 51, 51, 255)
-#     mask_skin = color_masking(img_numpy, 204, 0, 0)
-#     mask_left_eyebrow = color_masking(img_numpy, 255, 204, 204)
-#     mask_right_eyebrow = color_masking(img_numpy, 0, 255, 255)
-#     mask_up_lip = color_masking(img_numpy, 255, 255, 0)
-#     mask_mouth_inside = color_masking(img_numpy, 102, 204, 0)
-#     mask_down_lip = color_masking(img_numpy, 0, 0, 153)
-#     mask_left_ear = color_masking(img_numpy, 255, 0, 0)
-#     mask_right_ear = color_masking(img_numpy, 102, 51, 0)
-#     # mask_glass = color_masking(img_numpy, 204, 204, 0)
-
-#     mask_face = logical_or_masks(
-#         [mask_nose, mask_left_eye, mask_right_eye, mask_skin, mask_left_eyebrow, mask_right_eyebrow, mask_up_lip,
-#          mask_mouth_inside, mask_down_lip, mask_left_ear, mask_right_ear, ])
-#     mask_face = 1.0 * mask_face
-#     mask_face = Image.fromarray(np.array(mask_face))
-#     return mask_face
-
-
-class HifiFaceParsingTrainDataset(Dataset):
+class HifiFaceDataset(Dataset):
     def __init__(self, dataset_root_list, same_prob=0.5):
-        super(HifiFaceParsingTrainDataset, self).__init__()
-        self.datasets = []
-        self.N = []
+        super(HifiFaceDataset, self).__init__()
+        self.identity = []
+        self.dict = {}
         self.same_prob = same_prob
- 
+        
         for dataset_root in dataset_root_list:
-            imgpaths_in_root = glob.glob(f'{dataset_root}/*.*g')
+            for id_root in os.listdir(dataset_root):
+                id_path = f"{dataset_root}/{id_root}"
+                if os.path.isdir(id_path):
+                    img_paths_in_root = glob.glob(f'{id_path}/*.*g')
+                    if len(img_paths_in_root) >0:
+                        self.identity.append(id_path)
+                        self.dict[id_path] = img_paths_in_root
 
-            for root, dirs, _ in os.walk(dataset_root):
-                for dir in dirs:
-                    imgpaths_in_root += glob.glob(f'{root}/{dir}/*.*g')
-
-            self.datasets.append(imgpaths_in_root)
-            self.N.append(len(imgpaths_in_root))
 
         self.transforms = transforms.Compose([
             transforms.Resize((256,256)),
-            transforms.RandomHorizontalFlip(p=0.5),
             transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-
-    def __getitem__(self, item):
-        idx = 0
-        while item >= self.N[idx]:
-            item -= self.N[idx]
-            idx += 1
-        image_path = self.datasets[idx][item]
-        
-        Xs = Image.open(image_path).convert("RGB")
-
-        if random.random() > self.same_prob:
-            image_path = random.choice(self.datasets[random.randint(0, len(self.datasets)-1)])
-            Xt = Image.open(image_path).convert("RGB")
-            same_person = 0
-        else:
-            Xt = Xs.copy()
+    def __getitem__(self, idx):
+        id_path = self.identity[idx]
+        img_paths = self.dict[id_path]
+        img_path = random.choice(img_paths)
+        Xs = Image.open(img_path).convert("RGB")
+        if random.random() < self.same_prob:
+            t_image_path = random.choice(img_paths)
+            Xt = Image.open(t_image_path).convert("RGB")
             same_person = 1
+        else:
+            t_id_path = random.choice(self.identity)
+            if t_id_path == id_path:
+                same_person = 1
+                t_image_path = random.choice(img_paths)
+                Xt = Image.open(t_image_path).convert("RGB")
+            else:
+                same_person = 0               
+                t_img_paths = self.dict[t_id_path]
+                t_image_path = random.choice(t_img_paths)
+                Xt = Image.open(t_image_path).convert("RGB")
         return self.transforms(Xs), self.transforms(Xt), same_person
+    
 
     def __len__(self):
-        return sum(self.N)
+        return len(self.identity)
 
 
+
+def complex_imgaug(x, org_size):
+    """input single RGB PIL Image instance"""
+    # scale_size = np.random.randint(128,org_size)
+    x = np.array(x)
+    x = x[np.newaxis, :, :, :]
+    aug_seq = iaa.Sequential([
+            # iaa.Sometimes(0.5, iaa.OneOf([
+            #     iaa.GaussianBlur((1, 3)),
+            #     iaa.AverageBlur(k=(1, 3)),
+            #     iaa.MedianBlur(k=(1, 3)),
+            #     iaa.MotionBlur((3, 7))
+            # ])),
+            # iaa.Resize(scale_size, interpolation=ia.ALL),
+            iaa.Sometimes(0.2, iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.02*255), per_channel=0.2)),
+            iaa.Sometimes(0.5, iaa.JpegCompression(compression=(10, 30))),
+            # iaa.Resize(org_size)
+        ])
+    
+    aug_img = aug_seq(images=x)
+    return Image.fromarray(aug_img[0])
 
 
 class MultiResolutionDataset(Dataset):
-    def __init__(self, path, transform, resolution=256, same_prob=0.2):
+    def __init__(self, path, transform, resolution=256, same_prob=0.5):
         self.path = path
         self.same_prob = same_prob
         self.resolution = resolution
@@ -155,21 +161,31 @@ class MultiResolutionDataset(Dataset):
             img_bytes = txn.get(key)
         buffer = BytesIO(img_bytes)
         img = Image.open(buffer)
+        if random.random() < 0.5:
+            img = ImageOps.mirror(img)
         return img
 
     def __getitem__(self, idx):
         Xs = self.get_img(idx)
+
         l = self.__len__()
         if random.random() > self.same_prob:
             t_idx = random.randrange(l)
         else:
-            t_idx = idx    
-        Xs = self.transform(Xs)    
+            t_idx = idx
+
         if t_idx == idx:
             same_person = 1
-            Xt = Xs.detach().clone()
+            Xt = Xs.copy()
         else:
             same_person = 0 
-            Xt = self.get_img(t_idx)  
-            Xt = self.transform(Xt)
+            Xt = self.get_img(t_idx)
+
+        if random.random() > 0.5:
+            Xs = complex_imgaug(Xs,self.resolution)    
+        if random.random() > 0.5:
+            Xt = complex_imgaug(Xt,self.resolution)
+        Xs = self.transform(Xs)
+        Xt = self.transform(Xt)
+
         return Xs, Xt, same_person

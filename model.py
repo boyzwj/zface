@@ -15,6 +15,11 @@ from torch import nn
 from dataset import *
 from loss import *
 
+
+mean = torch.tensor([0.485, 0.456, 0.406])
+std = torch.tensor([0.229, 0.224, 0.225])
+
+unnormalize = transforms.Normalize((-mean / std).tolist(), (1.0 / std).tolist())
 class Zface(pl.LightningModule):
     def __init__(self,                 
                 cfg = None,
@@ -33,17 +38,19 @@ class Zface(pl.LightningModule):
         self.batch_size = cfg["batch_size"]
         self.preview_num = cfg["preview_num"]
 
-
+        torch.backends.cudnn.benchmark = True
         self.G = HififaceGenerator(activation=cfg["activation"])
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
                                                                     'tf_efficientnet_lite4'])
-        self.upsample = torch.nn.Upsample(scale_factor=4).eval()
-
-  
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        
+        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
+        self.segmentation_net.eval()
+        for param in self.segmentation_net.parameters():
+            param.requires_grad = False
+        self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))  
+        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
-   
         self.s2c = s2c
         self.c2s = c2s
         self.generated_img = None
@@ -58,6 +65,17 @@ class Zface(pl.LightningModule):
         img = self.G(I_source, I_target)[0]
         return img
 
+    
+    def get_mask(self,I):
+        with torch.no_grad():
+            size = I.size()[-1]
+            I = unnormalize(I)
+            logit , _  = self.segmentation_net(F.interpolate(I, size=(448,448), mode='bilinear'))
+            parsing = logit.max(1)[1]
+            face_mask = torch.where((parsing>0)&(parsing<10), 1, 0)
+            face_mask = F.interpolate(face_mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
+            face_mask = self.blur(face_mask)
+        return face_mask
     
     @torch.no_grad()
     def process_cmd(self):
@@ -81,7 +99,7 @@ class Zface(pl.LightningModule):
             
     @torch.no_grad()
     def send_previw(self):
-        output = self.G(self.src_img, self.dst_img)[0]
+        output = self.G.inference(self.src_img, self.dst_img)
         result =  []
         for src, dst, out  in zip( self.src_img.cpu() , self.dst_img.cpu() , output.cpu()):
             result = result + [src, dst, out]
@@ -91,6 +109,8 @@ class Zface(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         opt_g, opt_d = self.optimizers(use_pl_optimizer=True)
         I_source ,I_target, same_person = batch
+        target_mask = self.get_mask(I_target)
+     
 
         if self.src_img == None:
             self.src_img = I_source[:3]
@@ -98,19 +118,24 @@ class Zface(pl.LightningModule):
             
         self.process_cmd()
 
-        I_swapped_high,I_swapped_low,c_fuse = self.G(I_source, I_target)
-        I_swapped_low = self.upsample(I_swapped_low)
+        I_swapped_high, I_swapped_low, mask_high, mask_low, id_source, c_fuse = self.G(I_source, I_target)
+        # print("*********")
+        # print(target_mask)
+        # print("=========")
+        # print(mask_high)
         I_cycle = self.G(I_target,I_swapped_high)[0]
 
         # Arcface 
-        id_source = self.G.SAIE.get_id(I_source)
-        id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
+        # id_source = self.G.SAIE.get_id(I_source)
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
+        id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
+
 
 
         # 3D landmarks
-        q_swapped_high = self.G.SAIE.get_lm3d(self.G.SAIE.get_coeff3d(I_swapped_high))
         q_swapped_low = self.G.SAIE.get_lm3d(self.G.SAIE.get_coeff3d(I_swapped_low))
+        q_swapped_high = self.G.SAIE.get_lm3d(self.G.SAIE.get_coeff3d(I_swapped_high))
+
         q_fuse = self.G.SAIE.get_lm3d(c_fuse)
 
 
@@ -123,8 +148,11 @@ class Zface(pl.LightningModule):
         G_dict = {
             "I_source": I_source,
             "I_target": I_target,
-            "I_swapped_high": I_swapped_high, 
+            "I_swapped_high": I_swapped_high,
             "I_swapped_low": I_swapped_low,
+            "target_mask": target_mask,
+            "mask_high": mask_high,
+            "mask_low": mask_low,
             "I_cycle": I_cycle,
             "same_person": same_person,
             "id_source": id_source,
@@ -176,24 +204,24 @@ class Zface(pl.LightningModule):
         
         optimizer_g = torch.optim.AdamW(self.G.parameters(), lr=self.lr, betas=(self.b1, self.b2))
         optimizer_list.append({"optimizer": optimizer_g})
-        optimizer_d = torch.optim.AdamW(self.D.parameters(), lr=self.lr * 0.5, betas=(self.b1, self.b2))
+        optimizer_d = torch.optim.AdamW(self.D.parameters(), lr=self.lr, betas=(self.b1, self.b2))
         optimizer_list.append({"optimizer": optimizer_d})
         
         return optimizer_list
 
     def train_dataloader(self):
         transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation((-10,10),transforms.InterpolationMode.BILINEAR),
             transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
-        # dataset = HifiFaceParsingTrainDataset(["../../FFHQ/imgs/"])
-        dataset = MultiResolutionDataset("../../FFHQ/ffhq/",transform=transform,resolution=self.size)
-        num_workers = 8
+        dataset = HifiFaceDataset(["../../VGGface2/"])
+        # dataset = MultiResolutionDataset("../../ffhq/",transform=transform,resolution=self.size)
+        num_workers = 4
         persistent_workers = True
-        if(platform.system()=='Windows'):
-            num_workers = 0
-            persistent_workers = False
+        # if(platform.system()=='Windows'):
+        #     num_workers = 0
+        #     persistent_workers = False
         return DataLoader(dataset, batch_size=self.batch_size,pin_memory=True,num_workers=num_workers, shuffle=True,persistent_workers=persistent_workers, drop_last=True)
 

@@ -73,7 +73,7 @@ def azimuthal_average(image, center=None):
                                                  f'(but it is len(center)={len(center)}.'
     # Calculate the indices from the image
     H, W = image.shape[-2:]
-    h, w = torch.meshgrid(torch.arange(0, H), torch.arange(0, W))
+    h, w = torch.meshgrid(torch.arange(0, H), torch.arange(0, W), indexing='ij')
 
     if center is None:
         center = torch.tensor([(w.max() - w.min()) / 2.0, (h.max() - h.min()) / 2.0])

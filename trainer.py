@@ -26,11 +26,12 @@ def trainerThread(cfg, s2c = None, c2s = None):
 
 
     trainer = Trainer(
-            # precision=16,
+            accelerator='gpu', 
+            devices=1,
+            precision=16,
             # amp_backend ="apex", 
             # amp_level='O1',
             callbacks=[checkpoint_callback],
-            gpus=1,
             max_epochs=50)
 
     # trainer.tune(model)

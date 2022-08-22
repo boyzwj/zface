@@ -29,6 +29,7 @@ def rand_translation(x, ratio=0.125):
         torch.arange(x.size(0), dtype=torch.long, device=x.device),
         torch.arange(x.size(2), dtype=torch.long, device=x.device),
         torch.arange(x.size(3), dtype=torch.long, device=x.device),
+        indexing='ij'
     )
     grid_x = torch.clamp(grid_x + translation_x + 1, 0, x.size(2) + 1)
     grid_y = torch.clamp(grid_y + translation_y + 1, 0, x.size(3) + 1)
@@ -44,6 +45,7 @@ def rand_cutout(x, ratio=0.2):
         torch.arange(x.size(0), dtype=torch.long, device=x.device),
         torch.arange(cutout_size[0], dtype=torch.long, device=x.device),
         torch.arange(cutout_size[1], dtype=torch.long, device=x.device),
+        indexing='ij'
     )
     grid_x = torch.clamp(grid_x + offset_x - cutout_size[0] // 2, min=0, max=x.size(2) - 1)
     grid_y = torch.clamp(grid_y + offset_y - cutout_size[1] // 2, min=0, max=x.size(3) - 1)

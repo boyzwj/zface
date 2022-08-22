@@ -6,10 +6,11 @@ class HifiFaceLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
         self.W_adv = 0.125
-        self.W_id = 10
+        self.W_id = 5
+        self.W_seg = 100
         self.W_recon = 20
-        self.W_cycle = 1
-        self.W_lpips = 5
+        self.W_cycle = 5
+        self.W_lpips = 1
         self.W_shape = 5
         self.batch_size = args["batch_size"]
         self.face_pool = torch.nn.AdaptiveAvgPool2d((64, 64)).to("cuda").eval()
@@ -27,10 +28,10 @@ class HifiFaceLoss(LossInterface):
         # Shape loss
         if self.W_shape:
             L_shape = Loss.get_L1_loss(G_dict["q_fuse"], G_dict["q_swapped_high"]) 
-            L_shape += Loss.get_L1_loss(G_dict["q_fuse"], G_dict["q_swapped_low"])
+            L_shape += Loss.get_L1_loss(G_dict["q_fuse"], G_dict["q_swapped_low"]) 
             L_G += self.W_shape * L_shape/68
             self.loss_dict["L_shape"] = round(L_shape.item(), 4)
-
+            
         # Id loss
         if self.W_id:
             L_id = Loss.get_id_loss(G_dict["id_source"], G_dict["id_swapped_high"])
@@ -39,11 +40,19 @@ class HifiFaceLoss(LossInterface):
             self.loss_dict["L_id"] = round(L_id.item(), 4)
 
         # Reconstruction loss
+        if self.W_seg:
+            # L_seg = Loss.get_L1_loss_with_same_person(G_dict["mask_high"], G_dict["target_mask"], G_dict["same_person"], self.batch_size)
+            # L_seg += Loss.get_L1_loss_with_same_person(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'), G_dict["same_person"], self.batch_size)
+            L_seg = Loss.get_L1_loss(G_dict["mask_high"], G_dict["target_mask"])
+            L_seg += Loss.get_L1_loss(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'))
+            L_G += self.W_seg * L_seg
+            self.loss_dict["L_seg"] = round(L_seg.item(), 4)
+            
         if self.W_recon:
             L_recon = Loss.get_L1_loss_with_same_person(G_dict["I_swapped_high"], G_dict["I_target"], G_dict["same_person"], self.batch_size)
-            L_recon += Loss.get_L1_loss_with_same_person(G_dict["I_swapped_low"], G_dict["I_target"], G_dict["same_person"], self.batch_size)
+            L_recon += Loss.get_L1_loss_with_same_person(G_dict["I_swapped_low"],F.interpolate(G_dict["I_target"], scale_factor=0.25, mode='bilinear'), G_dict["same_person"], self.batch_size)
             L_G += self.W_recon * L_recon
-            self.loss_dict["L_recon"] = round(L_recon.item(), 4)
+            self.loss_dict["L_recon"] = round(L_recon.item(), 4)              
 
         # Cycle loss
         if self.W_cycle:
@@ -53,8 +62,7 @@ class HifiFaceLoss(LossInterface):
 
         # LPIPS loss
         if self.W_lpips:
-            L_lpips = Loss.get_lpips_loss(G_dict["I_swapped_high"], G_dict["I_target"]).mean()
-            L_lpips += Loss.get_lpips_loss(G_dict["I_swapped_low"], G_dict["I_target"]).mean()
+            L_lpips = Loss.get_lpips_loss_with_same_person(G_dict["I_swapped_high"], G_dict["I_target"],G_dict["same_person"], self.batch_size)
             L_G += self.W_lpips * L_lpips
             self.loss_dict["L_lpips"] = round(L_lpips.item(), 4)
 
