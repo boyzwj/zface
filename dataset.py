@@ -21,8 +21,8 @@ PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 class HifiFaceDataset(Dataset):
     def __init__(self, dataset_root_list, same_prob=0.5):
         super(HifiFaceDataset, self).__init__()
-        self.datasets = []
-        self.N = []
+        self.identity = []
+        self.dict = {}
         self.same_prob = same_prob
         
         for dataset_root in dataset_root_list:
@@ -67,7 +67,7 @@ class HifiFaceDataset(Dataset):
     
 
     def __len__(self):
-        return sum(self.N)
+        return len(self.identity)
 
 
 
