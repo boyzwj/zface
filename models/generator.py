@@ -244,7 +244,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, styledim=659, activation='lrelu'):
+    def __init__(self, styledim=662, activation='lrelu'):
         super(Decoder, self).__init__()
         self.d1 = GenResBlk(512, 512, up_sample=False, style_dim=styledim,activation=activation)
         self.d2 = GenResBlk(512, 512, up_sample=False, style_dim=styledim,activation=activation)
@@ -280,7 +280,7 @@ class F_up(nn.Module):
 
 
 class SemanticFacialFusionModule(nn.Module):
-    def __init__(self, norm='in', activation='lrelu', styledim=659):
+    def __init__(self, norm='in', activation='lrelu', styledim=662):
         super(SemanticFacialFusionModule, self).__init__()
         self.sigma = ResBlock(256,256,activation=activation)
         self.low_mask_predict = ResBlock(256,1,activation=activation)
