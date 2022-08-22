@@ -253,26 +253,28 @@ class Decoder(nn.Module):
         self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=styledim,activation=activation)
         self.apply(weight_init)
 
-    def forward(self, attr, s):
-        y = attr
-        for i in range(5):
-            y = self.net[i](y,s)
-        return y
-
+    def forward(self, x, s):
+        x = self.d1(x,s)
+        x = self.d2(x,s)
+        x = self.d3(x,s)
+        x = self.d4(x,s)
+        x = self.d5(x,s)
+        return x
 
 
 
 class F_up(nn.Module):
     def __init__(self, styledim,activation = 'lrelu'):
         super(F_up, self).__init__()
-        self.block1 = GenResBlk(256, 64, upsample = True, style_dim=styledim,return_rgb=True,activation=activation)
-        self.block2 = GenResBlk(64, 64, upsample = True, style_dim=styledim,return_rgb=True,activation=activation)
-        self.block3 = GenResBlk(64, 16, upsample = False, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block1 = GenResBlk(256, 64, up_sample = True, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block2 = GenResBlk(64, 16, up_sample = True, style_dim=styledim,return_rgb=True,activation=activation)
+        self.block3 = GenResBlk(16, 1, up_sample = False, style_dim=styledim,return_rgb=True,activation=activation)
     def forward(self, x, s,rgb = None):
         x, rgb = self.block1(x, s,rgb)
         x, rgb = self.block2(x, s,rgb)
-        x, rgb = self.block3(x, s,rgb)
-        return rgb, x
+        m_r, i_r = self.block3(x, s,rgb)
+        m_r = torch.sigmoid(m_r)
+        return i_r, m_r
 
 
 
@@ -280,63 +282,15 @@ class F_up(nn.Module):
 class SemanticFacialFusionModule(nn.Module):
     def __init__(self, norm='in', activation='lrelu', styledim=659):
         super(SemanticFacialFusionModule, self).__init__()
-
-
-        self.AdaINResBlock = GenResBlk(256, 259, upsample=False, style_dim=styledim,return_rgb = False,activation=activation)
-        
-        
-        self.F_up = F_up(styledim=styledim,activation=activation)
-
-        self.face_pool = nn.AdaptiveAvgPool2d((64, 64)).eval()
-
-        # face Segmentation model: HRNet [Sun et al., 2019]
-        # self.segmentation_net = BiSeNet(n_classes=19).to('cuda')
-        # self.segmentation_net.load_state_dict(torch.load('./weights/faceparser.pth', map_location="cuda"))
+        self.sigma = ResBlock(256,256,activation=activation)
+        self.low_mask_predict = ResBlock(256,1,activation=activation)
+        self.z_fuse_block_n  = GenResBlk(256, 256, up_sample=False, style_dim=styledim,return_rgb = True,activation=activation)
+        self.f_up_n = F_up(styledim=styledim,activation=activation)
 
         
-        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
-        
-        self.segmentation_net.eval()
-        for param in self.segmentation_net.parameters():
-            param.requires_grad = False
-        self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))
-
-    def get_mask(self, I):
-        with torch.no_grad():
-            size = I.size()[-1]
-            # parsing = self.segmentation_net(F.interpolate(I, size=(512,512), mode='bilinear', align_corners=True)).max(1)[1]
-            I = unnormalize(I)
-            logit , _  = self.segmentation_net(F.interpolate(I, size=(448,448), mode='bilinear', align_corners=True))
-            parsing = logit.max(1)[1]
-            mask = torch.where((parsing>0)&(parsing<10), 1, 0)
-            # mask = torch.where((parsing>0)&(parsing<14), 1, 0)
-            mask = F.interpolate(mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
-            mask = self.blur(mask)
-        return mask
 
 
 
-
-    def forward(self, z_enc, z_dec, v_sid, I_target):
-
-        M_high = self.get_mask(I_target).detach()
-        M_low = self.face_pool(M_high)
-
-
-        # z_enc 256 64 64
-        # z_dec 256 64 64
-        
-        # z_fuse 256 64 64
-        z_fuse = z_dec * M_low.repeat(1, 256, 1, 1) + z_enc * (1-M_low.repeat(1, 256, 1, 1))
-        
-        
-        I_out_low  = self.AdaINResBlock(z_fuse, v_sid) 
-
-        # I_low 3 64 64
-        I_swapped_low = I_out_low[:,:3,...] * M_low.repeat(1, 3, 1, 1) + self.face_pool(I_target) * (1-M_low.repeat(1, 3, 1, 1))
-
-        # I_out_high 3 256 256
-        I_out_high, _  = self.F_up(I_out_low[:,3:,...],v_sid)
 
     def forward(self, target_image, z_enc, z_dec, id_vector):
         z_enc = self.sigma(z_enc)
@@ -355,7 +309,7 @@ class HififaceGenerator(nn.Module):
         super(HififaceGenerator, self).__init__()
         self.SAIE = ShapeAwareIdentityExtractor()
         self.SFFM = SemanticFacialFusionModule(activation=activation)
-        self.E = Encoder(activation=activation)
+        self.E = torch.jit.script(Encoder(activation=activation))
         self.D = Decoder(activation=activation)
 
     @torch.no_grad()
@@ -378,9 +332,9 @@ class HififaceGenerator(nn.Module):
         z_dec = self.D(z_latent, v_sid)
 
         # Semantic Facial Fusion Module
-        I_swapped_high, I_swapped_low = self.SFFM(z_enc, z_dec, v_sid, I_t)
+        I_swapped_high, I_swapped_low, mask_high, mask_low= self.SFFM(z_enc, z_dec, v_sid, I_t)
         
-        return I_swapped_high, I_swapped_low, coeff_dict_fuse
+        return I_swapped_high, I_swapped_low, mask_high, mask_low, coeff_dict_fuse ,id_source
     
     
 if __name__ == "__main__":

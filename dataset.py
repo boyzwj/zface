@@ -18,33 +18,9 @@ import imgaug.augmenters as iaa
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-
-
-
-#     mask_nose = color_masking(img_numpy, 76, 153, 0)
-#     mask_left_eye = color_masking(img_numpy, 204, 0, 204)
-#     mask_right_eye = color_masking(img_numpy, 51, 51, 255)
-#     mask_skin = color_masking(img_numpy, 204, 0, 0)
-#     mask_left_eyebrow = color_masking(img_numpy, 255, 204, 204)
-#     mask_right_eyebrow = color_masking(img_numpy, 0, 255, 255)
-#     mask_up_lip = color_masking(img_numpy, 255, 255, 0)
-#     mask_mouth_inside = color_masking(img_numpy, 102, 204, 0)
-#     mask_down_lip = color_masking(img_numpy, 0, 0, 153)
-#     mask_left_ear = color_masking(img_numpy, 255, 0, 0)
-#     mask_right_ear = color_masking(img_numpy, 102, 51, 0)
-#     # mask_glass = color_masking(img_numpy, 204, 204, 0)
-
-#     mask_face = logical_or_masks(
-#         [mask_nose, mask_left_eye, mask_right_eye, mask_skin, mask_left_eyebrow, mask_right_eyebrow, mask_up_lip,
-#          mask_mouth_inside, mask_down_lip, mask_left_ear, mask_right_ear, ])
-#     mask_face = 1.0 * mask_face
-#     mask_face = Image.fromarray(np.array(mask_face))
-#     return mask_face
-
-
-class HifiFaceParsingTrainDataset(Dataset):
+class HifiFaceDataset(Dataset):
     def __init__(self, dataset_root_list, same_prob=0.5):
-        super(HifiFaceParsingTrainDataset, self).__init__()
+        super(HifiFaceDataset, self).__init__()
         self.datasets = []
         self.N = []
         self.same_prob = same_prob
@@ -61,6 +37,7 @@ class HifiFaceParsingTrainDataset(Dataset):
 
         self.transforms = transforms.Compose([
             transforms.Resize((256,256)),
+            transforms.RandomRotation((-10,10),transforms.InterpolationMode.BILINEAR),
             transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -181,10 +158,10 @@ class MultiResolutionDataset(Dataset):
             same_person = 0 
             Xt = self.get_img(t_idx)
 
-        if random.random() > 0.5:
-            Xs = complex_imgaug(Xs,self.resolution)    
-        if random.random() > 0.5:
-            Xt = complex_imgaug(Xt,self.resolution)
+        # if random.random() > 0.5:
+        #     Xs = complex_imgaug(Xs,self.resolution)    
+        # if random.random() > 0.5:
+        #     Xt = complex_imgaug(Xt,self.resolution)
         Xs = self.transform(Xs)
         Xt = self.transform(Xt)
 

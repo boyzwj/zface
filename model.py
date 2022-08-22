@@ -43,6 +43,16 @@ class Zface(pl.LightningModule):
         self.G = HififaceGenerator(activation=cfg["activation"])
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
                                                                     'tf_efficientnet_lite4'])
+
+        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
+        
+        self.segmentation_net.eval()
+        for param in self.segmentation_net.parameters():
+            param.requires_grad = False
+        self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))
+
+        
+                                                                            
         self.upsample = torch.nn.Upsample(scale_factor=4).eval()
 
   
@@ -115,14 +125,11 @@ class Zface(pl.LightningModule):
             self.dst_img = I_target[:3]
             
         self.process_cmd()
-
-        I_swapped_high,I_swapped_low,c_fuse = self.G(I_source, I_target)
+        I_swapped_high,I_swapped_low, mask_high, mask_low,c_fuse,id_source = self.G(I_source, I_target)
         I_swapped_low = self.upsample(I_swapped_low)
         I_cycle = self.G(I_target,I_swapped_high)[0]
 
-
         # Arcface 
-        # id_source = self.G.SAIE.get_id(I_source)
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
         id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
 
@@ -206,13 +213,6 @@ class Zface(pl.LightningModule):
         return optimizer_list
 
     def train_dataloader(self):
-        transform = transforms.Compose([
-            transforms.RandomRotation((-10,10),transforms.InterpolationMode.BILINEAR),
-            transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
-            transforms.RandomRotation(degrees=(-10,10),interpolation=Image.Resampling.BILINEAR),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-            ])
         dataset = HifiFaceDataset(["../../VGGface2/"])
         # dataset = MultiResolutionDataset("../../ffhq/",transform=transform,resolution=self.size)
         num_workers = 4
