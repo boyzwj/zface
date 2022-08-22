@@ -15,7 +15,6 @@ import math
 from models.modulated_conv2d import  RGBBlock,Conv2DMod
 from models.cbam import CBAM
 from models.ca import CoordAtt
-from torch_utils.ops import  FusedLeakyReLU
 mean = torch.tensor([0.485, 0.456, 0.406])
 std = torch.tensor([0.229, 0.224, 0.225])
 
@@ -148,8 +147,8 @@ def weight_init(m):
 class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
-        self.F_id = iresnet100(pretrained=False, fp16=True)
-        self.F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
+        self.F_id = iresnet50(pretrained=False, fp16=True)
+        self.F_id.load_state_dict(torch.load('./weights/backbone_r50.pth'))
         self.F_id.eval()
         
         for param in self.F_id.parameters():
@@ -163,6 +162,7 @@ class ShapeAwareIdentityExtractor(nn.Module):
         self.facemodel = ParametricFaceModel(is_train=False)
  
 
+    @torch.no_grad()
     def forward(self, I_s, I_t):
         # id of Is
         with torch.no_grad():
@@ -187,18 +187,21 @@ class ShapeAwareIdentityExtractor(nn.Module):
                     ], dim=1)
         return v_sid, coeff_dict_fuse,id_source
     
+    @torch.no_grad()
     def get_id(self, I):
         v_id = self.F_id(F.interpolate(I, size=112, mode='bilinear'))
         v_id = F.normalize(v_id)
         return v_id
 
+
+    @torch.no_grad()
     def get_coeff3d(self, I):
-        coeffs = self.net_recon(I[:, :, 16:240, 16:240]*0.5+0.5)
+        coeffs = self.net_recon(F.interpolate(I * 0.5 + 0.5, size=224, mode='bilinear'))
         coeff_dict = self.facemodel.split_coeff(coeffs)
         return coeff_dict
 
+    @torch.no_grad()
     def get_lm3d(self, coeff_dict):
-        
         # get 68 3d landmarks
         face_shape = self.facemodel.compute_shape(coeff_dict['id'], coeff_dict['exp'])
         rotation = self.facemodel.compute_rotation(coeff_dict['angle'])
@@ -273,7 +276,7 @@ class F_up(nn.Module):
         x, rgb = self.block1(x, s,rgb)
         x, rgb = self.block2(x, s,rgb)
         m_r, i_r = self.block3(x, s,rgb)
-        m_r = torch.sigmoid(m_r)
+        m_r = torch.tanh(m_r)
         return i_r, m_r
 
 
@@ -295,7 +298,7 @@ class SemanticFacialFusionModule(nn.Module):
     def forward(self, target_image, z_enc, z_dec, id_vector):
         z_enc = self.sigma(z_enc)
         m_low = self.low_mask_predict(z_dec)
-        m_low = torch.sigmoid(m_low)
+        m_low = torch.tanh(m_low)
         z_fuse = m_low * z_dec + (1 - m_low) * z_enc
         z_fuse,i_low = self.z_fuse_block_n(z_fuse, id_vector)
         i_r, m_r = self.f_up_n(z_fuse,id_vector,i_low)
@@ -332,7 +335,7 @@ class HififaceGenerator(nn.Module):
         z_dec = self.D(z_latent, v_sid)
 
         # Semantic Facial Fusion Module
-        I_swapped_high, I_swapped_low, mask_high, mask_low= self.SFFM(z_enc, z_dec, v_sid, I_t)
+        I_swapped_high, I_swapped_low, mask_high, mask_low= self.SFFM(I_t,z_enc, z_dec, v_sid)
         
         return I_swapped_high, I_swapped_low, mask_high, mask_low, coeff_dict_fuse ,id_source
     
