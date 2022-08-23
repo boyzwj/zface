@@ -55,8 +55,8 @@ class Zface(pl.LightningModule):
                                                                         
 
   
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
+        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
