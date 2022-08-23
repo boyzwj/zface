@@ -126,7 +126,6 @@ class Zface(pl.LightningModule):
         self.process_cmd()
         I_swapped_high,I_swapped_low, mask_high, mask_low,c_fuse,id_source = self.G(I_source, I_target)
         I_cycle = self.G(I_target,I_swapped_high)[0]
-
         # Arcface 
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
         id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
@@ -211,7 +210,7 @@ class Zface(pl.LightningModule):
         return optimizer_list
 
     def train_dataloader(self):
-        dataset = HifiFaceDataset(["../../VGGface2/"])
+        dataset = HifiFaceDataset(["../../VGGface2/","../../Customface"])
         # dataset = MultiResolutionDataset("../../ffhq/",transform=transform,resolution=self.size)
         num_workers = 4
         persistent_workers = True

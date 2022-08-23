@@ -48,34 +48,48 @@ def set_activate_layer(types):
     return activation
 
 
+# class AdaIn(nn.Module):
+#     def __init__(self, in_channel, vector_size):
+#         super(AdaIn, self).__init__()
+#         self.eps = 1e-5
+#         self.std_style_fc = nn.Linear(vector_size, in_channel)
+#         self.mean_style_fc = nn.Linear(vector_size, in_channel)
+
+#     def forward(self, x, style_vector):
+#         std_style = self.std_style_fc(style_vector)
+#         mean_style = self.mean_style_fc(style_vector)
+
+#         std_style = std_style.unsqueeze(-1).unsqueeze(-1)
+#         mean_style = mean_style.unsqueeze(-1).unsqueeze(-1)
+
+#         x = F.instance_norm(x)
+#         x = std_style * x + mean_style
+#         return x
+
+
 class AdaIn(nn.Module):
-    def __init__(self, in_channel, vector_size):
-        super(AdaIn, self).__init__()
-        self.eps = 1e-5
-        self.std_style_fc = nn.Linear(vector_size, in_channel)
-        self.mean_style_fc = nn.Linear(vector_size, in_channel)
+    def __init__(self,in_channel, style_dim):
+        super().__init__()
+        self.norm = nn.InstanceNorm2d(in_channel, affine=False)
+        self.fc = nn.Linear(style_dim, in_channel*2)
 
-    def forward(self, x, style_vector):
-        std_style = self.std_style_fc(style_vector)
-        mean_style = self.mean_style_fc(style_vector)
-
-        std_style = std_style.unsqueeze(-1).unsqueeze(-1)
-        mean_style = mean_style.unsqueeze(-1).unsqueeze(-1)
-
-        x = F.instance_norm(x)
-        x = std_style * x + mean_style
-        return x
-
+    def forward(self, x, s):
+        h = self.fc(s)
+        h = h.view(h.size(0), h.size(1), 1, 1)
+        gamma, beta = torch.chunk(h, chunks=2, dim=1)
+        return (1 + gamma) * self.norm(x) + beta
+    
+    
 class AdaInResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, up_sample=False, style_dim=689,activation='lrelu'):
+    def __init__(self, in_channel, out_channel, up_sample=False, style_dim=662,activation='lrelu'):
         super(AdaInResBlock, self).__init__()
         self.ada_in1 = AdaIn(in_channel, style_dim)
         self.ada_in2 = AdaIn(out_channel, style_dim)
-
+        self.activ = set_activate_layer(activation)
         main_module_list = []
         main_module_list += [
             set_activate_layer(activation),
-            nn.Conv2d(in_channel, out_channel, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channel, out_channel, kernel_size=3, stride=1, padding=1,bias=False),
         ]
         if up_sample:
             main_module_list.append(nn.Upsample(scale_factor=2, mode="bilinear"))
@@ -83,10 +97,10 @@ class AdaInResBlock(nn.Module):
 
         self.main_path2 = nn.Sequential(
             set_activate_layer(activation),
-            nn.Conv2d(out_channel, out_channel, kernel_size=3, stride=1, padding=1)
+            nn.Conv2d(out_channel, out_channel, kernel_size=3, stride=1, padding=1,bias=False)
         )
 
-        side_module_list = [nn.Conv2d(in_channel, out_channel, kernel_size=1, stride=1, padding=0)]
+        side_module_list = [nn.Conv2d(in_channel, out_channel, kernel_size=1, stride=1, padding=0,bias=False)]
         if up_sample:
             side_module_list.append(nn.Upsample(scale_factor=2, mode="bilinear"))
         self.side_path = nn.Sequential(*side_module_list)
@@ -94,12 +108,13 @@ class AdaInResBlock(nn.Module):
 
     def forward(self, x, id_vector):
         x1 = self.ada_in1(x, id_vector)
+        x1 = self.activ(x1)
         x1 = self.main_path1(x1)
         x1 = self.ada_in2(x1, id_vector)
+        x1 = self.activ(x1)
         x1 = self.main_path2(x1)
         x2 = self.side_path(x)
-        return (x1 + x2)/math.sqrt(2)
-
+        return x1 + x2
         
         
 
@@ -212,7 +227,6 @@ class ShapeAwareIdentityExtractor(nn.Module):
         self.facemodel = ParametricFaceModel(is_train=False)
  
 
-    @torch.no_grad()
     def forward(self, I_s, I_t):
         # id of Is
         with torch.no_grad():
@@ -235,8 +249,9 @@ class ShapeAwareIdentityExtractor(nn.Module):
                            coeff_dict_fuse["angle"],
                            coeff_dict_fuse["trans"]
                     ], dim=1)
-        return v_sid, coeff_dict_fuse,id_source
+        return v_sid, coeff_dict_fuse, id_source
     
+
     @torch.no_grad()
     def get_id(self, I):
         v_id = self.F_id(F.interpolate(I, size=112, mode='bilinear'))
@@ -270,21 +285,31 @@ class ShapeAwareIdentityExtractor(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
-        self.FirstConv = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.ResBlock1 = ResBlock(64, 128, down_sample=True,activation=activation)
-        self.ResBlock2 = ResBlock(128, 256, down_sample=True,attention=True, activation=activation)
-        self.ResBlock3 = ResBlock(256, 512, down_sample=True,attention=True, activation=activation)
-        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=True, activation=activation)
-        self.ResBlock5 = ResBlock(512, 512, down_sample=True,attention=True, activation=activation)
-        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
-        self.ResBlock7 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
-        self.skip = ResBlock(256, 256, down_sample=False,attention=True, activation=activation)
+        self.Stem = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
+            nn.BatchNorm2d(64),
+            set_activate_layer(activation),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
+            nn.BatchNorm2d(64),
+            set_activate_layer(activation),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
+            nn.BatchNorm2d(64),
+            set_activate_layer(activation)
+        )
+        self.ResBlock1 = ResBlock(64, 128, down_sample=True,attention=False,activation=activation)
+        self.ResBlock2 = ResBlock(128, 256, down_sample=True,attention=False, activation=activation)
+        self.ResBlock3 = ResBlock(256, 512, down_sample=True,attention=False, activation=activation)
+        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=False, activation=activation)
+        self.ResBlock5 = ResBlock(512, 512, down_sample=True,attention=False, activation=activation)
+        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=False, activation=activation)
+        self.ResBlock7 = ResBlock(512, 512, down_sample=False,attention=False, activation=activation)
+        self.skip = ResBlock(256, 256, down_sample=False,attention=False, activation=activation)
         self.apply(weight_init)
         
         
         
     def forward(self, x):
-        x = self.FirstConv(x) # 64x256x256
+        x = self.Stem(x) # 64x256x256
         x = self.ResBlock1(x) # 32x128x128
         x = self.ResBlock2(x) # 64x64x64
         y = self.ResBlock3(x) # 128x32x32
@@ -361,7 +386,7 @@ class HififaceGenerator(nn.Module):
 
     @torch.no_grad()
     def inference(self,I_s,I_t):
-        v_sid, _coeff_dict_fuse, _id_source = self.SAIE(I_s, I_t)
+        v_sid, _coeff_dict_fuse, _ = self.SAIE(I_s, I_t)
         z_latent, z_enc = self.E(I_t)
         z_dec,low_mask = self.D(z_latent, v_sid)
         I_swapped_high = self.SFFM(I_t,low_mask,z_enc, z_dec, v_sid)[0]
@@ -381,7 +406,7 @@ class HififaceGenerator(nn.Module):
         # Semantic Facial Fusion Module
         I_swapped_high, I_swapped_low, mask_high, mask_low= self.SFFM(I_t,low_mask,z_enc, z_dec, v_sid)
         
-        return I_swapped_high, I_swapped_low, mask_high, mask_low, coeff_dict_fuse ,id_source
+        return I_swapped_high, I_swapped_low, mask_high, mask_low, coeff_dict_fuse,id_source
     
     
 if __name__ == "__main__":
