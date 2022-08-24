@@ -1,9 +1,9 @@
 activation: mish
-batch_size: 6
+batch_size: 8
 dataset: sexyface
 image_size: 256
 latent_dim: 512
-learning_rate: 3.0e-05
+learning_rate: 5.0e-05
 preview_num: 9
 resume: false
 train_name: '02'

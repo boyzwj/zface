@@ -21,53 +21,72 @@ PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 class HifiFaceDataset(Dataset):
     def __init__(self, dataset_root_list, same_prob=0.5):
         super(HifiFaceDataset, self).__init__()
-        self.identity = []
-        self.dict = {}
+        self.images = []
+        self.image_identity = {}
+        self.identity_ids = {}
         self.same_prob = same_prob
-        
+        cur_identity_id = 0
+        cur_image_id = 0
         for dataset_root in dataset_root_list:
             for id_root in os.listdir(dataset_root):
                 id_path = f"{dataset_root}/{id_root}"
                 if os.path.isdir(id_path):
-                    img_paths_in_root = glob.glob(f'{id_path}/*.*g')
-                    if len(img_paths_in_root) >0:
-                        self.identity.append(id_path)
-                        self.dict[id_path] = img_paths_in_root
+                    cur_identity_img_ids = []
+                    for img_path in os.listdir(id_path):
+                        if img_path.endswith("g"):
+                            self.images.append(f"{id_path}/{img_path}")
+                            self.image_identity[cur_image_id] = cur_identity_id
+                            cur_identity_img_ids.append(cur_image_id)
+                            cur_image_id += 1
+                    self.identity_ids[cur_identity_id] = cur_identity_img_ids
+                    cur_identity_id = cur_identity_id + 1             
+        
 
-
-        self.transforms = transforms.Compose([
+        self.transforms1 = transforms.Compose([
             transforms.Resize((256,256)),
             transforms.RandomRotation((-10,10),transforms.InterpolationMode.BILINEAR),
             transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
+        self.transforms2 = transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation((-10,10),transforms.InterpolationMode.BILINEAR),
+            transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
 
+    def random_img_from_identity(self,identity_id):
+        image_ids = self.identity_ids[identity_id]
+        image_id = random.choice(image_ids)
+        return image_id
+      
+    def get_img_by_id(self, idx):
+        image_path = self.images[idx]
+        img = Image.open(image_path).convert("RGB")
+        return img
+        
+        
     def __getitem__(self, idx):
-        id_path = self.identity[idx]
-        img_paths = self.dict[id_path]
-        img_path = random.choice(img_paths)
-        Xs = Image.open(img_path).convert("RGB")
+        Xs = self.get_img_by_id(idx)
         if random.random() < self.same_prob:
-            t_image_path = random.choice(img_paths)
-            Xt = Image.open(t_image_path).convert("RGB")
+            identity_id = self.image_identity[idx]
+            t_img_id = self.random_img_from_identity(identity_id)
+            Xt = self.get_img_by_id(t_img_id)
             same_person = 1
+            return self.transforms1(Xs), self.transforms1(Xt), same_person
         else:
-            t_id_path = random.choice(self.identity)
-            if t_id_path == id_path:
-                same_person = 1
-                t_image_path = random.choice(img_paths)
-                Xt = Image.open(t_image_path).convert("RGB")
-            else:
-                same_person = 0               
-                t_img_paths = self.dict[t_id_path]
-                t_image_path = random.choice(t_img_paths)
-                Xt = Image.open(t_image_path).convert("RGB")
-        return self.transforms(Xs), self.transforms(Xt), same_person
+            t_image_path = random.choice(self.images)
+            Xt = Image.open(t_image_path).convert("RGB")
+            same_person = 0
+            return self.transforms2(Xs), self.transforms2(Xt), same_person            
+
     
 
     def __len__(self):
-        return len(self.identity)
+        return len(self.images)
 
 
 
