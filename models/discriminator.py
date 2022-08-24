@@ -178,10 +178,10 @@ class ProjectedDiscriminator(torch.nn.Module):
         return self.train(False)
 
     def forward(self, x, blur_sigma =0):
-        # blur_size = np.floor(blur_sigma * 3)
-        # if blur_size > 0:
-        #     f = torch.arange(-blur_size, blur_size + 1, device=x.device).div(blur_sigma).square().neg().exp2()
-        #     x = upfirdn2d.filter2d(x, f / f.sum())
+        blur_size = np.floor(blur_sigma * 3)
+        if blur_size > 0:
+            f = torch.arange(-blur_size, blur_size + 1, device=x.device).div(blur_sigma).square().neg().exp2()
+            x = upfirdn2d.filter2d(x, f / f.sum())
             
         logits = []
         for bb_name, feat in self.feature_networks.items():

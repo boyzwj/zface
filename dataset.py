@@ -92,11 +92,17 @@ class HifiFaceDataset(Dataset):
 
 
 class MultiResolutionDataset(Dataset):
-    def __init__(self, path, transform, resolution=256, same_prob=0.5):
+    def __init__(self, path, resolution=256, same_prob=0.5):
         self.path = path
         self.same_prob = same_prob
         self.resolution = resolution
-        self.transform = transform
+        self.transform = transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.RandomRotation((-10,10),transforms.InterpolationMode.BILINEAR),
+            transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
         self.blacklist = np.array([40650])
         env = lmdb.open(
             self.path,

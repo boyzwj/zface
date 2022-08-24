@@ -252,7 +252,6 @@ class ShapeAwareIdentityExtractor(nn.Module):
         return v_sid, coeff_dict_fuse, id_source
     
 
-    @torch.no_grad()
     def get_id(self, I):
         v_id = self.F_id(F.interpolate(I, size=112, mode='bilinear'))
         v_id = F.normalize(v_id)
@@ -265,7 +264,6 @@ class ShapeAwareIdentityExtractor(nn.Module):
         coeff_dict = self.facemodel.split_coeff(coeffs)
         return coeff_dict
 
-    @torch.no_grad()
     def get_lm3d(self, coeff_dict):
         # get 68 3d landmarks
         face_shape = self.facemodel.compute_shape(coeff_dict['id'], coeff_dict['exp'])
@@ -285,15 +283,15 @@ class ShapeAwareIdentityExtractor(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
-        self.Stem = nn.Sequential(
+        self.first = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.BatchNorm2d(64),
+            nn.InstanceNorm2d(64),
             set_activate_layer(activation),
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.BatchNorm2d(64),
+            nn.InstanceNorm2d(64),
             set_activate_layer(activation),
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.BatchNorm2d(64),
+            nn.InstanceNorm2d(64),
             set_activate_layer(activation)
         )
         self.ResBlock1 = ResBlock(64, 128, down_sample=True,attention=False,activation=activation)
@@ -309,7 +307,7 @@ class Encoder(nn.Module):
         
         
     def forward(self, x):
-        x = self.Stem(x) # 64x256x256
+        x = self.first(x) # 64x256x256
         x = self.ResBlock1(x) # 32x128x128
         x = self.ResBlock2(x) # 64x64x64
         y = self.ResBlock3(x) # 128x32x32

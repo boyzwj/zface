@@ -138,7 +138,7 @@ class Loss:
         )[0]
         grad_dout2 = grad_dout.pow(2)
         assert(grad_dout2.size() == x_in.size())
-        reg = 0.5 * grad_dout2.view(batch_size, -1).sum(1).mean(0)
+        reg = 0.5 * grad_dout2.contiguous().view(batch_size, -1).sum(1).mean(0)
         return reg
 
     def get_adversarial_loss(logits, target):
