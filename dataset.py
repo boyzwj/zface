@@ -160,9 +160,10 @@ class HifiFaceDataset2(Dataset):
         
         
     def __getitem__(self, idx):
-        img_id = self.random_img_from_identity(idx)
+        image_ids = self.identity_ids[idx]
+        img_id = random.choice(image_ids)
         Xs = self.get_img_by_id(img_id)
-        if random.random() < self.same_prob:
+        if random.random() < self.same_prob or len(image_ids)>1:
             t_img_id = self.random_img_from_identity(idx)
             Xt = self.get_img_by_id(t_img_id)
             same_person = 1
