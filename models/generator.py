@@ -282,24 +282,13 @@ class ShapeAwareIdentityExtractor(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
-        self.first = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.InstanceNorm2d(64),
-            set_activate_layer(activation),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.InstanceNorm2d(64),
-            set_activate_layer(activation),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1,bias=False),
-            nn.InstanceNorm2d(64),
-            set_activate_layer(activation)
-        )
-        self.ResBlock1 = ResBlock(64, 128, down_sample=True,attention=False,activation=activation)
-        self.ResBlock2 = ResBlock(128, 256, down_sample=True,attention=False, activation=activation)
-        self.ResBlock3 = ResBlock(256, 512, down_sample=True,attention=False, activation=activation)
-        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=False, activation=activation)
-        self.ResBlock5 = ResBlock(512, 512, down_sample=True,attention=False, activation=activation)
-        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=False, activation=activation)
-        self.ResBlock7 = ResBlock(512, 512, down_sample=False,attention=False, activation=activation)
+        self.first =   nn.Conv2d(in_channels=3, out_channels=128, kernel_size=3, stride=1, padding=1)
+        self.ResBlock1 = ResBlock(128, 256, down_sample=True,attention=False,activation=activation)  #128
+        self.ResBlock2 = ResBlock(256, 256, down_sample=True,attention=False, activation=activation) #64
+        self.ResBlock3 = ResBlock(256, 512, down_sample=True,attention=False, activation=activation) #32
+        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=False, activation=activation) #16
+        self.ResBlock5 = ResBlock(512, 768, down_sample=True,attention=False, activation=activation) #8
+        self.ResBlock6 = ResBlock(768, 768, down_sample=False,attention=False, activation=activation)
         self.skip = ResBlock(256, 256, down_sample=False,attention=False, activation=activation)
         self.apply(weight_init)
         
@@ -313,7 +302,6 @@ class Encoder(nn.Module):
         y = self.ResBlock4(y) # 256x16xx16
         y = self.ResBlock5(y) # 512x8x8
         y = self.ResBlock6(y) # 1024x4x4
-        y = self.ResBlock7(y) # 1024x4x4
         z = self.skip(x)
         return y, z
 
@@ -321,12 +309,11 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=662, activation='lrelu'):
         super(Decoder, self).__init__()
-        self.d1 = AdaInResBlock(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
+        self.d1 = AdaInResBlock(768, 512, up_sample=False, style_dim=style_dim,activation=activation)
         self.d2 = AdaInResBlock(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
         self.d3 = AdaInResBlock(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
         self.d4 = AdaInResBlock(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
         self.d5 = AdaInResBlock(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
-        self.low_mask_predict = ResBlock(256,1,activation=activation)
         self.apply(weight_init)
 
     def forward(self, x, s):
@@ -335,9 +322,7 @@ class Decoder(nn.Module):
         x = self.d3(x,s)
         x = self.d4(x,s)
         x = self.d5(x,s)
-        y = self.low_mask_predict(x)
-        y = torch.sigmoid(y)
-        return x, y
+        return x
 
 
 
@@ -345,8 +330,8 @@ class F_up(nn.Module):
     def __init__(self, style_dim,activation = 'lrelu'):
         super(F_up, self).__init__()
         self.block1 = GenResBlk(256, 64, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.block2 = GenResBlk(64, 16, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.block3 = GenResBlk(16, 1, up_sample = False, style_dim=style_dim,return_rgb=True,activation=activation)
+        self.block2 = GenResBlk(64, 32, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
+        self.block3 = GenResBlk(32, 1, up_sample = False, style_dim=style_dim,return_rgb=True,activation=activation)
     def forward(self, x, s,rgb = None):
         x, rgb = self.block1(x, s,rgb)
         x, rgb = self.block2(x, s,rgb)
@@ -362,15 +347,33 @@ class SemanticFacialFusionModule(nn.Module):
         super(SemanticFacialFusionModule, self).__init__()
         self.z_fuse_block_n  = GenResBlk(256, 256, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
         self.f_up_n = F_up(style_dim=style_dim,activation=activation)
+        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
+        self.segmentation_net.eval()
+        for param in self.segmentation_net.parameters():
+            param.requires_grad = False
+        self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))
 
+    def get_mask(self,I):
+        with torch.no_grad():
+            size = I.size()[-1]
+            I = unnormalize(I)
+            logit , _  = self.segmentation_net(F.interpolate(I, size=(448,448), mode='bilinear'))
+            parsing = logit.max(1)[1]
+            face_mask = torch.where((parsing>0)&(parsing<10), 1, 0)
+            face_mask = F.interpolate(face_mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
+            face_mask = self.blur(face_mask)
+        return face_mask
     
-    def forward(self, target_image,m_low, z_enc, z_dec, id_vector):
-        z_fuse = m_low * z_dec + (1 - m_low) * z_enc
+    
+    def forward(self, target_image, z_enc, z_dec, id_vector):
+        mask_high = self.get_mask(target_image).detach()
+        mask_low = F.interpolate(mask_high, scale_factor=0.25,mode='bilinear')
+        z_fuse = mask_low * z_dec + (1 - mask_low) * z_enc
         z_fuse,i_low = self.z_fuse_block_n(z_fuse, id_vector)
-        i_r, m_r = self.f_up_n(z_fuse,id_vector,i_low)
-        i_r = m_r * i_r + (1 - m_r) * target_image
-        i_low = m_low * i_low + (1 - m_low) * F.interpolate(target_image, scale_factor=0.25,mode='bilinear')
-        return i_r, i_low, m_r, m_low
+        i_r, out_mask = self.f_up_n(z_fuse,id_vector,i_low)
+        i_r = mask_high * i_r + (1 - mask_high) * target_image
+        i_low = mask_low * i_low + (1 - mask_low) * F.interpolate(target_image, scale_factor=0.25,mode='bilinear')
+        return i_r, i_low ,out_mask,mask_high
 
 
 class HififaceGenerator(nn.Module):
@@ -385,8 +388,8 @@ class HififaceGenerator(nn.Module):
     def inference(self,I_s,I_t):
         v_sid, _coeff_dict_fuse, _ = self.SAIE(I_s, I_t)
         z_latent, z_enc = self.E(I_t)
-        z_dec,low_mask = self.D(z_latent, v_sid)
-        I_swapped_high = self.SFFM(I_t,low_mask,z_enc, z_dec, v_sid)[0]
+        z_dec = self.D(z_latent, v_sid)
+        I_swapped_high = self.SFFM(I_t,z_enc, z_dec, v_sid)[0]
         return I_swapped_high
         
     def forward(self, I_s, I_t):
@@ -398,12 +401,12 @@ class HififaceGenerator(nn.Module):
         z_latent, z_enc = self.E(I_t)  #z_latent 目标深度隐含变量   z_enc 是目标的浅层隐含变量
 
         # Decoder
-        z_dec,low_mask = self.D(z_latent, v_sid)
+        z_dec = self.D(z_latent, v_sid)
 
         # Semantic Facial Fusion Module
-        I_swapped_high, I_swapped_low, mask_high, mask_low= self.SFFM(I_t,low_mask,z_enc, z_dec, v_sid)
+        I_swapped_high, I_swapped_low, mask_high,mask_target = self.SFFM(I_t,z_enc, z_dec, v_sid)
         
-        return I_swapped_high, I_swapped_low, mask_high, mask_low, coeff_dict_fuse,id_source
+        return I_swapped_high, I_swapped_low,mask_high,mask_target, coeff_dict_fuse,id_source
     
     
 if __name__ == "__main__":

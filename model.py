@@ -42,21 +42,12 @@ class Zface(pl.LightningModule):
         torch.backends.cudnn.benchmark = True
         self.G = HififaceGenerator(activation=cfg["activation"])
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
-                                                                    'tf_efficientnet_lite4'])
-
-        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
-        
-        self.segmentation_net.eval()
-        for param in self.segmentation_net.parameters():
-            param.requires_grad = False
-        self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))
-
-        
+                                                                    'tf_efficientnet_lite4'])    
                                                                         
 
   
-        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
-        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -73,16 +64,7 @@ class Zface(pl.LightningModule):
         return img
 
     
-    def get_mask(self,I):
-        with torch.no_grad():
-            size = I.size()[-1]
-            I = unnormalize(I)
-            logit , _  = self.segmentation_net(F.interpolate(I, size=(448,448), mode='bilinear'))
-            parsing = logit.max(1)[1]
-            face_mask = torch.where((parsing>0)&(parsing<10), 1, 0)
-            face_mask = F.interpolate(face_mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
-            face_mask = self.blur(face_mask)
-        return face_mask
+
     
     @torch.no_grad()
     def process_cmd(self):
@@ -116,7 +98,6 @@ class Zface(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         opt_g, opt_d = self.optimizers(use_pl_optimizer=True)
         I_source ,I_target, same_person = batch
-        target_mask = self.get_mask(I_target)
      
 
         if self.src_img == None:
@@ -124,7 +105,7 @@ class Zface(pl.LightningModule):
             self.dst_img = I_target[:3]
             
         self.process_cmd()
-        I_swapped_high,I_swapped_low, mask_high, mask_low,c_fuse,id_source = self.G(I_source, I_target)
+        I_swapped_high,I_swapped_low,mask_high,mask_target,c_fuse,id_source = self.G(I_source, I_target)
         I_cycle = self.G(I_target,I_swapped_high)[0]
         # Arcface 
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
@@ -139,7 +120,6 @@ class Zface(pl.LightningModule):
         q_fuse = self.G.SAIE.get_lm3d(c_fuse)
 
 
-        
 
 
         # adversarial
@@ -150,9 +130,9 @@ class Zface(pl.LightningModule):
             "I_target": I_target,
             "I_swapped_high": I_swapped_high,
             "I_swapped_low": I_swapped_low,
-            "target_mask": target_mask,
+            "mask_target": mask_target,
             "mask_high": mask_high,
-            "mask_low": mask_low,
+            # "mask_low": mask_low,
             "I_cycle": I_cycle,
             "same_person": same_person,
             "id_source": id_source,
