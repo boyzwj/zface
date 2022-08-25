@@ -1,4 +1,5 @@
 from configparser import Interpolation
+from genericpath import isfile
 from io import BytesIO
 from re import I
 import lmdb
@@ -18,9 +19,9 @@ import imgaug.augmenters as iaa
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-class HifiFaceDataset(Dataset):
+class HifiFaceDataset1(Dataset):
     def __init__(self, dataset_root_list, same_prob=0.5):
-        super(HifiFaceDataset, self).__init__()
+        super(HifiFaceDataset1, self).__init__()
         self.images = []
         self.image_identity = {}
         self.identity_ids = {}
@@ -39,7 +40,16 @@ class HifiFaceDataset(Dataset):
                             cur_identity_img_ids.append(cur_image_id)
                             cur_image_id += 1
                     self.identity_ids[cur_identity_id] = cur_identity_img_ids
-                    cur_identity_id = cur_identity_id + 1             
+                    cur_identity_id = cur_identity_id + 1
+                elif os.path.isfile(id_path) and id_path.endswith("g"):
+                    self.images.append(f"{id_path}")
+                    cur_image_id += 1
+                    self.identity_ids[cur_identity_id] = [cur_image_id]
+                    cur_identity_id = cur_identity_id + 1
+        self.identity_num = cur_identity_id
+        self.image_num = cur_image_id
+                    
+                               
         
 
         self.transforms1 = transforms.Compose([
@@ -86,7 +96,94 @@ class HifiFaceDataset(Dataset):
     
 
     def __len__(self):
-        return len(self.images)
+        return len(self.image_num)
+    
+
+
+class HifiFaceDataset2(Dataset):
+    def __init__(self, dataset_root_list, same_prob=0.5):
+        super(HifiFaceDataset2, self).__init__()
+        self.images = []
+        self.image_identity = {}
+        self.identity_ids = {}
+        self.same_prob = same_prob
+        cur_identity_id = 0
+        cur_image_id = 0
+        for dataset_root in dataset_root_list:
+            for id_root in os.listdir(dataset_root):
+                id_path = f"{dataset_root}/{id_root}"
+                if os.path.isdir(id_path):
+                    cur_identity_img_ids = []
+                    for img_path in os.listdir(id_path):
+                        if img_path.endswith("g"):
+                            self.images.append(f"{id_path}/{img_path}")
+                            self.image_identity[cur_image_id] = cur_identity_id
+                            cur_identity_img_ids.append(cur_image_id)
+                            cur_image_id += 1
+                    self.identity_ids[cur_identity_id] = cur_identity_img_ids
+                    cur_identity_id = cur_identity_id + 1
+                elif os.path.isfile(id_path) and id_path.endswith("g"):
+                    self.images.append(f"{id_path}")
+                    self.identity_ids[cur_identity_id] = [cur_image_id]
+                    cur_image_id += 1
+
+                    cur_identity_id = cur_identity_id + 1
+        self.identity_num = cur_identity_id
+        self.image_num = cur_image_id
+                    
+                               
+        self.transforms1 = transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.RandomRotation((-5,5),transforms.InterpolationMode.BILINEAR),
+            transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        self.transforms2 = transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation((-5,5),transforms.InterpolationMode.BILINEAR),
+            transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+    def random_img_from_identity(self,identity_id):
+        image_ids = self.identity_ids[identity_id]
+        image_id = random.choice(image_ids)
+        return image_id
+      
+    def get_img_by_id(self, idx):
+        image_path = self.images[idx]
+        img = Image.open(image_path).convert("RGB")
+        return img
+        
+        
+    def __getitem__(self, idx):
+        img_id = self.random_img_from_identity(idx)
+        Xs = self.get_img_by_id(img_id)
+        if random.random() < self.same_prob:
+            t_img_id = self.random_img_from_identity(idx)
+            Xt = self.get_img_by_id(t_img_id)
+            same_person = 1
+        else:
+            t_idx = random.randint(0,self.identity_num - 1)
+            t_img_id = self.random_img_from_identity(t_idx)
+            Xt = self.get_img_by_id(t_img_id)
+            if t_idx == idx:
+                same_person = 1
+            else:
+                same_person = 0
+        if same_person == 1:                
+            return self.transforms1(Xs), self.transforms1(Xt), same_person
+        else:
+            return self.transforms2(Xs), self.transforms2(Xt), same_person        
+
+    
+
+    def __len__(self):
+        return self.identity_num
+    
 
 
 

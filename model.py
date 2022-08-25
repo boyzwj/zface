@@ -210,7 +210,7 @@ class Zface(pl.LightningModule):
         return optimizer_list
 
     def train_dataloader(self):
-        dataset = HifiFaceDataset(["../../Customface"])
+        dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ_female"])
         # dataset = MultiResolutionDataset("../../ffhq/",resolution=self.size)
         num_workers = 4
         persistent_workers = True

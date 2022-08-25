@@ -258,7 +258,6 @@ class ShapeAwareIdentityExtractor(nn.Module):
         return v_id
 
 
-    @torch.no_grad()
     def get_coeff3d(self, I):
         coeffs = self.net_recon(F.interpolate(I * 0.5 + 0.5, size=224, mode='bilinear'))
         coeff_dict = self.facemodel.split_coeff(coeffs)

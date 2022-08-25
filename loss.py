@@ -6,7 +6,7 @@ class HifiFaceLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
         self.W_adv = 0.125
-        self.W_id = 5
+        self.W_id = 10
         self.W_seg = 100
         self.W_recon = 20
         self.W_cycle = 5
