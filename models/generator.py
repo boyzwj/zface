@@ -282,26 +282,27 @@ class ShapeAwareIdentityExtractor(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
-        self.first =   nn.Conv2d(in_channels=3, out_channels=128, kernel_size=3, stride=1, padding=1)
-        self.ResBlock1 = ResBlock(128, 256, down_sample=True,attention=False,activation=activation)  #128
-        self.ResBlock2 = ResBlock(256, 256, down_sample=True,attention=False, activation=activation) #64
-        self.ResBlock3 = ResBlock(256, 512, down_sample=True,attention=False, activation=activation) #32
-        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=False, activation=activation) #16
-        self.ResBlock5 = ResBlock(512, 768, down_sample=True,attention=False, activation=activation) #8
-        self.ResBlock6 = ResBlock(768, 768, down_sample=False,attention=False, activation=activation)
-        self.skip = ResBlock(256, 256, down_sample=False,attention=False, activation=activation)
+        self.conv_first =   nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.ResBlock1 = ResBlock(64, 128, down_sample=True,attention=True,activation=activation)  #128
+        self.ResBlock2 = ResBlock(128, 256, down_sample=True,attention=False, activation=activation) #64
+        self.ResBlock3 = ResBlock(256, 256, down_sample=True,attention=True, activation=activation) #32
+        self.ResBlock4 = ResBlock(256, 256, down_sample=True,attention=False, activation=activation) #16
+        self.ResBlock5 = ResBlock(256, 512, down_sample=True,attention=True, activation=activation) #8
+        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=False, activation=activation)
+        self.ResBlock7 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
+        self.skip = ResBlock(256, 256, down_sample=False,attention=True, activation=activation)
         self.apply(weight_init)
-        
-        
-        
+
+  
     def forward(self, x):
-        x = self.first(x) # 64x256x256
+        x = self.conv_first(x)# 64x256x256
         x = self.ResBlock1(x) # 32x128x128
         x = self.ResBlock2(x) # 64x64x64
         y = self.ResBlock3(x) # 128x32x32
         y = self.ResBlock4(y) # 256x16xx16
         y = self.ResBlock5(y) # 512x8x8
         y = self.ResBlock6(y) # 1024x4x4
+        y = self.ResBlock7(y) # 1024x4x4
         z = self.skip(x)
         return y, z
 
@@ -309,11 +310,11 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=662, activation='lrelu'):
         super(Decoder, self).__init__()
-        self.d1 = AdaInResBlock(768, 512, up_sample=False, style_dim=style_dim,activation=activation)
+        self.d1 = AdaInResBlock(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
         self.d2 = AdaInResBlock(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
-        self.d3 = AdaInResBlock(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
-        self.d4 = AdaInResBlock(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
-        self.d5 = AdaInResBlock(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d3 = AdaInResBlock(512, 384, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d4 = AdaInResBlock(384, 384, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d5 = AdaInResBlock(384, 256, up_sample=True, style_dim=style_dim,activation=activation)
         self.apply(weight_init)
 
     def forward(self, x, s):
@@ -323,6 +324,18 @@ class Decoder(nn.Module):
         x = self.d4(x,s)
         x = self.d5(x,s)
         return x
+
+class AE(nn.Module):
+    def __init__(self, style_dim=662, activation='lrelu'):
+        super(AE, self).__init__()
+        self.encoder = Encoder(activation=activation)
+        self.decoder = Decoder(activation=activation,style_dim=style_dim)
+
+    def forward(self,I_t,v_sid):
+        z_latent, z_enc = self.encoder(I_t)
+        z_dec = self.decoder(z_latent, v_sid)
+        return z_enc,z_dec
+
 
 
 
@@ -381,14 +394,12 @@ class HififaceGenerator(nn.Module):
         super(HififaceGenerator, self).__init__()
         self.SAIE = ShapeAwareIdentityExtractor()
         self.SFFM = SemanticFacialFusionModule(activation=activation)
-        self.E = torch.jit.script(Encoder(activation=activation))
-        self.D = torch.jit.script(Decoder(activation=activation))
+        self.AE = torch.jit.script(AE(activation=activation))
 
     @torch.no_grad()
     def inference(self,I_s,I_t):
         v_sid, _coeff_dict_fuse, _ = self.SAIE(I_s, I_t)
-        z_latent, z_enc = self.E(I_t)
-        z_dec = self.D(z_latent, v_sid)
+        z_enc,z_dec = self.AE(I_t,v_sid)
         I_swapped_high = self.SFFM(I_t,z_enc, z_dec, v_sid)[0]
         return I_swapped_high
         
@@ -396,16 +407,10 @@ class HififaceGenerator(nn.Module):
         
         # 3D Shape-Aware Identity Extractor
         v_sid, coeff_dict_fuse,id_source = self.SAIE(I_s, I_t)
-        
-        # Encoder
-        z_latent, z_enc = self.E(I_t)  #z_latent 目标深度隐含变量   z_enc 是目标的浅层隐含变量
-
-        # Decoder
-        z_dec = self.D(z_latent, v_sid)
-
+        # AutoEncoder
+        z_enc,z_dec = self.AE(I_t,v_sid)
         # Semantic Facial Fusion Module
         I_swapped_high, I_swapped_low, mask_high,mask_target = self.SFFM(I_t,z_enc, z_dec, v_sid)
-        
         return I_swapped_high, I_swapped_low,mask_high,mask_target, coeff_dict_fuse,id_source
     
     

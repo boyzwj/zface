@@ -41,10 +41,11 @@ class Zface(pl.LightningModule):
 
         torch.backends.cudnn.benchmark = True
         self.G = HififaceGenerator(activation=cfg["activation"])
-        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
-                                                                    'tf_efficientnet_lite4'])    
+        # self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
+        #                                                             'tf_efficientnet_lite4'])    
                                                                         
-
+        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_small_distilled_patch16_224',
+                                                                    'tf_efficientnet_lite0']) 
   
         # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
         # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
@@ -190,7 +191,7 @@ class Zface(pl.LightningModule):
         return optimizer_list
 
     def train_dataloader(self):
-        dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ_female","../../CelebA-HQ"])
+        dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ","../../vggface_clean"])
         # dataset = MultiResolutionDataset("../../ffhq/",resolution=self.size)
         num_workers = 4
         persistent_workers = True

@@ -120,8 +120,9 @@ class HifiFaceDataset2(Dataset):
                             self.image_identity[cur_image_id] = cur_identity_id
                             cur_identity_img_ids.append(cur_image_id)
                             cur_image_id += 1
-                    self.identity_ids[cur_identity_id] = cur_identity_img_ids
-                    cur_identity_id = cur_identity_id + 1
+                    if len(cur_identity_img_ids) > 0:
+                        self.identity_ids[cur_identity_id] = cur_identity_img_ids
+                        cur_identity_id = cur_identity_id + 1
                 elif os.path.isfile(id_path) and id_path.endswith("g"):
                     self.images.append(f"{id_path}")
                     self.identity_ids[cur_identity_id] = [cur_image_id]
