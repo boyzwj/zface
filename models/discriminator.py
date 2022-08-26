@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from models.diff_augment import DiffAugment
 from models.projector import F_RandomProj
 from torch.nn.utils import spectral_norm
-from models.activation import *
 from torch_utils.ops import upfirdn2d
 from torchvision.transforms import Normalize
 from models.constants import VITS
@@ -28,8 +27,7 @@ class DownBlock(nn.Module):
         self.main = nn.Sequential(
             conv2d(in_planes, out_planes*width, 4, 2, 1, bias=False),
             NormLayer(out_planes*width),
-            MemoryEfficientMish(),
-            # nn.LeakyReLU(0.2, inplace=True),
+            nn.Mish(inplace=True)
         )
 
     def forward(self, feat):
@@ -43,8 +41,7 @@ class DownBlockPatch(nn.Module):
             DownBlock(in_planes, out_planes),
             conv2d(out_planes, out_planes, 1, 1, 0, bias=False),
             NormLayer(out_planes),
-            MemoryEfficientMish(),
-            # nn.LeakyReLU(0.2, inplace=True),
+            nn.Mish(inplace=True)
         )
 
     def forward(self, feat):
@@ -80,8 +77,7 @@ class SingleDisc(nn.Module):
         # Head if the initial input is the full modality
         if head:
             layers += [conv2d(nc, nfc[256], 3, 1, 1, bias=False),
-                       MemoryEfficientMish()
-                    #    nn.LeakyReLU(0.2, inplace=True)
+                       nn.Mish(inplace=True)
                        ]
 
         # Down Blocks
@@ -177,7 +173,7 @@ class ProjectedDiscriminator(torch.nn.Module):
     def eval(self):
         return self.train(False)
 
-    def forward(self, x, blur_sigma =0):
+    def forward(self, x, blur_sigma = 0):
         blur_size = np.floor(blur_sigma * 3)
         if blur_size > 0:
             f = torch.arange(-blur_size, blur_size + 1, device=x.device).div(blur_sigma).square().neg().exp2()

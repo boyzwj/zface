@@ -7,12 +7,7 @@ import yaml
 import os
 
 def trainerThread(cfg, s2c = None, c2s = None):
-    model = Zface(
-    cfg= cfg,
-    s2c=s2c,
-    c2s=c2s)
-
-
+    model = Zface(cfg= cfg,s2c=s2c,c2s=c2s)
     checkpoint_callback = ModelCheckpoint(
         dirpath=f'./check_points/',
         every_n_train_steps = 10000,

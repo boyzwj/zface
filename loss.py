@@ -1,13 +1,27 @@
 import torch
 from lib.loss import Loss, LossInterface
 import torch.nn.functional as F
+from einops import rearrange, repeat
+
+
+def dual_contrastive_loss(real_logits, fake_logits):
+    device = real_logits.device
+    real_logits, fake_logits = map(lambda t: rearrange(t, '... -> (...)'), (real_logits, fake_logits))
+
+    def loss_half(t1, t2):
+        t1 = rearrange(t1, 'i -> i ()')
+        t2 = repeat(t2, 'j -> i j', i = t1.shape[0])
+        t = torch.cat((t1, t2), dim = -1)
+        return F.cross_entropy(t, torch.zeros(t1.shape[0], device = device, dtype = torch.long))
+
+    return loss_half(real_logits, fake_logits) + loss_half(-fake_logits, -real_logits)
 
 class HifiFaceLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
         self.W_adv = 0.125
         self.W_id = 1
-        self.W_seg = 100
+        # self.W_seg = 100
         self.W_recon = 20
         self.W_cycle = 1
         self.W_lpips = 1
@@ -40,13 +54,13 @@ class HifiFaceLoss(LossInterface):
             self.loss_dict["L_id"] = round(L_id.item(), 4)
 
         # Seg loss
-        if self.W_seg:
-            L_seg = Loss.get_L1_loss_with_same_person(G_dict["mask_high"], G_dict["mask_target"], G_dict["same_person"], self.batch_size)
-            # L_seg += Loss.get_L1_loss_with_same_person(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'), G_dict["same_person"], self.batch_size)
-            # L_seg = Loss.get_L1_loss(G_dict["mask_high"], G_dict["mask_target"])
-            # L_seg += Loss.get_L1_loss(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'))
-            L_G += self.W_seg * L_seg
-            self.loss_dict["L_seg"] = round(L_seg.item(), 4)
+        # if self.W_seg:
+        #     L_seg = Loss.get_L1_loss_with_same_person(G_dict["mask_high"], G_dict["mask_target"], G_dict["same_person"], self.batch_size)
+        #     # L_seg += Loss.get_L1_loss_with_same_person(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'), G_dict["same_person"], self.batch_size)
+        #     # L_seg = Loss.get_L1_loss(G_dict["mask_high"], G_dict["mask_target"])
+        #     # L_seg += Loss.get_L1_loss(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'))
+        #     L_G += self.W_seg * L_seg
+        #     self.loss_dict["L_seg"] = round(L_seg.item(), 4)
         # Reconstruction loss
         if self.W_recon:
             L_recon = Loss.get_L1_loss_with_same_person(G_dict["I_swapped_high"], G_dict["I_target"], G_dict["same_person"], self.batch_size)
@@ -69,18 +83,15 @@ class HifiFaceLoss(LossInterface):
         self.loss_dict["L_G"] = round(L_G.item(), 4)
         return L_G
     
+    # def get_loss_D(self, D_dict):
+    #     L_true =  sum([(F.relu(torch.ones_like(l) - l)).mean() for l in D_dict["d_true"] ])
+    #     L_fake =  sum([(F.relu(torch.ones_like(l) +  l)).mean() for l in D_dict["d_fake"] ])
+    #     L_D = L_true + L_fake
+    #     return L_D
+    
     def get_loss_D(self, D_dict):
-        L_true =  sum([(F.relu(torch.ones_like(l) - l)).mean() for l in D_dict["d_true"] ])
-        L_fake =  sum([(F.relu(torch.ones_like(l) +  l)).mean() for l in D_dict["d_fake"] ])
-        # L_reg  =  sum([Loss.get_r1_reg(l,D_dict["I_target"])  for l in D_dict["d_true"]])
-        L_D = L_true + L_fake
-
-        
-        # self.loss_dict["L_D"] = round(L_D.item(), 4)
-        # self.loss_dict["L_true"] = round(L_true.mean().item(), 4)
-        # self.loss_dict["L_fake"] = round(L_fake.mean().item(), 4)
-
-        return L_D
+        L_D = sum([dual_contrastive_loss(real,fake) for real,fake in zip(D_dict["d_true"],D_dict["d_fake"])])
+        return L_D    
 
     # def get_loss_D(self, D_dict):
     #     L_true = Loss.get_BCE_loss(D_dict["d_true"], True)

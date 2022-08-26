@@ -3,21 +3,6 @@ import torch.nn as nn
 import math
 import torch.nn.functional as F
 
-class h_sigmoid(nn.Module):
-    def __init__(self, inplace=True):
-        super(h_sigmoid, self).__init__()
-        self.relu = nn.ReLU6(inplace=inplace)
-
-    def forward(self, x):
-        return self.relu(x + 3) / 6
-
-class h_swish(nn.Module):
-    def __init__(self, inplace=True):
-        super(h_swish, self).__init__()
-        self.sigmoid = h_sigmoid(inplace=inplace)
-
-    def forward(self, x):
-        return x * self.sigmoid(x)
 
 class CoordAtt(nn.Module):
     def __init__(self, inp, oup, reduction=32):
@@ -29,7 +14,7 @@ class CoordAtt(nn.Module):
 
         self.conv1 = nn.Conv2d(inp, mip, kernel_size=1, stride=1, padding=0,bias=False)
         self.bn1 = nn.BatchNorm2d(mip)
-        self.act = h_swish()
+        self.act = nn.Hardswish()
         self.conv_h = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0,bias=False)
         self.conv_w = nn.Conv2d(mip, oup, kernel_size=1, stride=1, padding=0,bias=False)
         self.sigmoid_h = nn.Sigmoid()          #定义的sigmoid方法
@@ -38,9 +23,9 @@ class CoordAtt(nn.Module):
 
     def forward(self, x):
         identity = x
-        h=x.shape[2]  #13
-        w=x.shape[3]  #13
-        # n,c,h,w = x.size()
+        # h=x.size(2)  #13
+        # w=x.size(3)  #13
+        n,c,h,w = x.size()
         x_h = self.pool_h(x)
         x_w = self.pool_w(x).permute(0, 1, 3, 2)
 

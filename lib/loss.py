@@ -115,6 +115,7 @@ class Loss:
             return torch.relu(1-logit).mean()
         else:
             return torch.relu(logit+1).mean()
+    
 
     @classmethod
     def get_hinge_loss(cls, Di, label):
