@@ -41,12 +41,12 @@ class Zface(pl.LightningModule):
 
         self.G = HififaceGenerator(activation=cfg["activation"])
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
-                                                                    'tf_efficientnet_lite4'])    
+                                                                    'tf_efficientnet_lite0'])    
                                                                         
 
   
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -105,7 +105,7 @@ class Zface(pl.LightningModule):
             
         self.process_cmd()
         I_swapped_high,I_swapped_low,c_fuse,id_source = self.G(I_source, I_target)
-        I_cycle = self.G(I_target,I_swapped_high)[0]
+        I_cycle = self.G(I_swapped_high,I_source)[0]
         # Arcface 
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
         id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
@@ -189,6 +189,7 @@ class Zface(pl.LightningModule):
         return optimizer_list
 
     def train_dataloader(self):
+        # dataset = HifiFaceDataset2(["../../Customface","../../facefuck"])
         dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ","../../CelebA-HQ"])
         # dataset = MultiResolutionDataset("../../ffhq/",resolution=self.size)
         num_workers = 4

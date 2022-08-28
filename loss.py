@@ -20,12 +20,12 @@ class HifiFaceLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
         self.W_adv = 0.125
-        self.W_id = 1
+        self.W_id = 5
         # self.W_seg = 100
         self.W_recon = 20
         self.W_cycle = 1
-        self.W_lpips = 1
-        self.W_shape = 1
+        self.W_lpips = 5
+        self.W_shape = 0.5
         self.batch_size = args["batch_size"]
         self.face_pool = torch.nn.AdaptiveAvgPool2d((64, 64)).to("cuda").eval()
 
@@ -70,7 +70,7 @@ class HifiFaceLoss(LossInterface):
 
         # Cycle loss
         if self.W_cycle:
-            L_cycle = Loss.get_L1_loss(G_dict["I_swapped_high"], G_dict["I_cycle"])
+            L_cycle = Loss.get_L1_loss(G_dict["I_source"], G_dict["I_cycle"])
             L_G += self.W_cycle * L_cycle
             self.loss_dict["L_cycle"] = round(L_cycle.item(), 4)
 

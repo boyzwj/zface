@@ -237,7 +237,8 @@ class ResBlock(nn.Module):
         ]
         if attention:
              main_module_list += [
-                 CBAM(out_channel,2,3)
+                 CoordAtt(out_channel,out_channel,2)
+                #  CBAM(out_channel,2,3)
              ]
              
         self.main_path = nn.Sequential(*main_module_list)
@@ -345,13 +346,13 @@ class ShapeAwareIdentityExtractor(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
-        self.first =   nn.Conv2d(3, 128, 3, 1, 1)
+        self.first =   nn.Conv2d(3, 128, 3, 1, 1,bias=False)
         self.ResBlock1 = ResBlock(128, 256, down_sample=True,attention=True,activation=activation)  #128
-        self.ResBlock2 = ResBlock(256, 256, down_sample=True,attention=False, activation=activation) #64
+        self.ResBlock2 = ResBlock(256, 256, down_sample=True,attention=True, activation=activation) #64
         self.ResBlock3 = ResBlock(256, 512, down_sample=True,attention=True, activation=activation) #32
-        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=False, activation=activation) #16
+        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=True, activation=activation) #16
         self.ResBlock5 = ResBlock(512, 512, down_sample=True,attention=True, activation=activation) #8
-        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=False, activation=activation)
+        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
         self.ResBlock7 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
         self.skip = ResBlock(256, 256, down_sample=False,attention=True, activation=activation)
         self.apply(weight_init)
@@ -375,15 +376,15 @@ class Decoder(nn.Module):
     def __init__(self, style_dim=662, activation='lrelu'):
         super(Decoder, self).__init__()
         self.att1 = attn_and_ff(512)
-        self.d1 = AdaInResBlock(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
+        self.d1 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
         self.att2 = attn_and_ff(512)
-        self.d2 = AdaInResBlock(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
+        self.d2 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
         self.att3 = attn_and_ff(512)
-        self.d3 = AdaInResBlock(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d3 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
         self.att4 = attn_and_ff(512)
-        self.d4 = AdaInResBlock(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d4 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
         self.att5 = attn_and_ff(512)
-        self.d5 = AdaInResBlock(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
         self.apply(weight_init)
 
     def forward(self, x, s):
@@ -405,10 +406,10 @@ class F_up(nn.Module):
     def __init__(self, style_dim,activation = 'lrelu'):
         super(F_up, self).__init__()
         self.att1 = attn_and_ff(256)
-        self.block1 = GenResBlk(256, 64, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.att2 = attn_and_ff(64)
-        self.block2 = GenResBlk(64, 32, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.block3 = GenResBlk(32, 32, up_sample = False, style_dim=style_dim,return_rgb=True,activation=activation)
+        self.block1 = GenResBlk(256, 256, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
+        self.att2 = attn_and_ff(256)
+        self.block2 = GenResBlk(256, 256, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
+        self.block3 = GenResBlk(256, 64, up_sample = False, style_dim=style_dim,return_rgb=True,activation=activation)
     def forward(self, x, s,rgb = None):
         x = self.att1(x)
         x, rgb = self.block1(x, s,rgb)
@@ -459,7 +460,7 @@ class HififaceGenerator(nn.Module):
         super(HififaceGenerator, self).__init__()
         self.SAIE = ShapeAwareIdentityExtractor()
         self.SFFM = SemanticFacialFusionModule(activation=activation)
-        self.E = torch.jit.script(Encoder(activation=activation))
+        self.E = Encoder(activation=activation)
         self.D = Decoder(activation=activation)
 
     @torch.no_grad()
