@@ -56,7 +56,7 @@ class Loss:
     Provide various losses such as LPIPS, L1, L2, BCE and so on.
     """
     
-    L1 = torch.nn.L1Loss().to("cuda")
+    L1 = torch.nn.SmoothL1Loss().to("cuda")
     L2 = torch.nn.MSELoss().to("cuda")
 
     def get_id_loss(a, b):

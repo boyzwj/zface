@@ -12,10 +12,11 @@ from models.face_models.iresnet import iresnet100,iresnet50
 from models.faceparser import BiSeNet
 from models.activation import *
 import math
-from models.modulated_conv2d import  RGBBlock,Conv2DMod
+from models.modulated_conv2d import  RGBBlock,Conv2DMod,Blur
 from models.cbam import CBAM
 from models.ca import CoordAtt
 from einops import rearrange, repeat
+from inplace_abn import InPlaceABN
 
 mean = torch.tensor([0.485, 0.456, 0.406])
 std = torch.tensor([0.229, 0.224, 0.225])
@@ -36,7 +37,6 @@ def set_activate_layer(types):
         activation = nn.LeakyReLU(0.2,inplace=True)
     elif types == 'mish':
         activation = nn.Mish(inplace=True)
-        # activation = MemoryEfficientMish()
     elif types ==  "swish":
         activation = nn.SiLU(inplace=True)
     elif types == 'tanh':
@@ -215,32 +215,89 @@ class GenResBlk(nn.Module):
             return x    
 
 
-class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
-        super(ResBlock, self).__init__()
+# class ResBlock(nn.Module):
+#     def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
+#         super(ResBlock, self).__init__()
+        
+#         main_module_list = []
+#         main_module_list += [
+#             nn.InstanceNorm2d(in_channel,affine=True),
+#             set_activate_layer(activation),
+#             nn.Conv2d(in_channel,in_channel, 3, 1, 1,bias=False)
+#             ]
+#         if down_sample:
+#             main_module_list.append(nn.AvgPool2d(kernel_size=2))
+#         elif up_sample:
+#             main_module_list += [
+#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+#                 ]
 
+#         main_module_list += [
+#             nn.InstanceNorm2d(in_channel,affine=True),
+#             set_activate_layer(activation),
+#             nn.Conv2d(in_channel,out_channel, 3, 1, 1)
+#         ]
+#         if attention:
+#              main_module_list += [
+#                  CoordAtt(out_channel,out_channel)
+#                 #  CBAM(out_channel,2,3)
+#              ]
+             
+#         self.main_path = nn.Sequential(*main_module_list)
+#         side_module_list = []
+#         if in_channel != out_channel:
+#             side_module_list += [nn.Conv2d(in_channel, out_channel, 1, 1, 0, bias=False)]
+#         else:
+#             side_module_list += [nn.Identity()]   
+#         if down_sample:
+#             side_module_list.append(nn.AvgPool2d(kernel_size=2))
+#         elif up_sample:
+#             side_module_list += [
+#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+#                 ]
+#         self.side_path = nn.Sequential(*side_module_list)
+
+#     def forward(self, x):
+#         x1 = self.main_path(x)
+#         x2 = self.side_path(x)
+#         return (x1 + x2) / math.sqrt(2)
+    
+class ResBlock(nn.Module):
+    def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,bn = False,attention = False,activation='lrelu'):
+        super(ResBlock, self).__init__()     
         main_module_list = []
-        main_module_list += [
-            nn.InstanceNorm2d(in_channel,affine=True),
-            set_activate_layer(activation),
-            nn.Conv2d(in_channel,in_channel, 3, 1, 1)
+        if bn:
+            main_module_list += [
+                nn.Conv2d(in_channel,in_channel, 3, 1, 1,bias=False),
+                InPlaceABN(in_channel)
+            ]
+        else:
+            main_module_list += [
+                nn.InstanceNorm2d(in_channel,affine=True),
+                set_activate_layer(activation),
+                nn.Conv2d(in_channel,in_channel, 3, 1, 1,bias=False),
             ]
         if down_sample:
             main_module_list.append(nn.AvgPool2d(kernel_size=2))
         elif up_sample:
-            main_module_list.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-
-        main_module_list += [
-            nn.InstanceNorm2d(in_channel,affine=True),
-            set_activate_layer(activation),
-            nn.Conv2d(in_channel,out_channel, 3, 1, 1)
-        ]
+            main_module_list += [
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                ]
+        if bn:
+            main_module_list += [
+                nn.Conv2d(in_channel,out_channel, 3, 1, 1,bias=False),
+                InPlaceABN(out_channel)
+            ]
+        else:
+            main_module_list += [
+                nn.InstanceNorm2d(in_channel,affine=True),
+                set_activate_layer(activation),
+                nn.Conv2d(in_channel,out_channel, 3, 1, 1)
+            ]            
         if attention:
              main_module_list += [
-                 CoordAtt(out_channel,out_channel,2)
-                #  CBAM(out_channel,2,3)
+                 CoordAtt(out_channel,out_channel)
              ]
-             
         self.main_path = nn.Sequential(*main_module_list)
         side_module_list = []
         if in_channel != out_channel:
@@ -250,7 +307,9 @@ class ResBlock(nn.Module):
         if down_sample:
             side_module_list.append(nn.AvgPool2d(kernel_size=2))
         elif up_sample:
-            side_module_list.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+            side_module_list += [
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                ]
         self.side_path = nn.Sequential(*side_module_list)
 
     def forward(self, x):
@@ -258,7 +317,8 @@ class ResBlock(nn.Module):
         x2 = self.side_path(x)
         return (x1 + x2) / math.sqrt(2)
     
-
+    
+    
 def weight_init(m):
     if isinstance(m, nn.Linear):
         m.weight.data.normal_(0, 0.001)
@@ -346,13 +406,13 @@ class ShapeAwareIdentityExtractor(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
-        self.first =   nn.Conv2d(3, 128, 3, 1, 1,bias=False)
-        self.ResBlock1 = ResBlock(128, 256, down_sample=True,attention=True,activation=activation)  #128
-        self.ResBlock2 = ResBlock(256, 256, down_sample=True,attention=True, activation=activation) #64
+        self.first =   nn.Conv2d(3, 64, 3, 1, 1,bias=False)
+        self.ResBlock1 = ResBlock(64, 128, down_sample=True,attention=True,activation=activation)  #128
+        self.ResBlock2 = ResBlock(128, 256, down_sample=True,attention=False, activation=activation) #64
         self.ResBlock3 = ResBlock(256, 512, down_sample=True,attention=True, activation=activation) #32
-        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=True, activation=activation) #16
+        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=False, activation=activation) #16
         self.ResBlock5 = ResBlock(512, 512, down_sample=True,attention=True, activation=activation) #8
-        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
+        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=False, activation=activation)
         self.ResBlock7 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
         self.skip = ResBlock(256, 256, down_sample=False,attention=True, activation=activation)
         self.apply(weight_init)
@@ -375,28 +435,18 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=662, activation='lrelu'):
         super(Decoder, self).__init__()
-        self.att1 = attn_and_ff(512)
         self.d1 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
-        self.att2 = attn_and_ff(512)
         self.d2 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
-        self.att3 = attn_and_ff(512)
         self.d3 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
-        self.att4 = attn_and_ff(512)
         self.d4 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
-        self.att5 = attn_and_ff(512)
         self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
         self.apply(weight_init)
 
     def forward(self, x, s):
-        x = self.att1(x)
         x = self.d1(x,s)
-        x = self.att2(x)
         x = self.d2(x,s)
-        x = self.att3(x)
         x = self.d3(x,s)
-        x = self.att4(x)
         x = self.d4(x,s)
-        x = self.att5(x)
         x = self.d5(x,s)
         return x
 
@@ -405,27 +455,36 @@ class Decoder(nn.Module):
 class F_up(nn.Module):
     def __init__(self, style_dim,activation = 'lrelu'):
         super(F_up, self).__init__()
-        self.att1 = attn_and_ff(256)
         self.block1 = GenResBlk(256, 256, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.att2 = attn_and_ff(256)
         self.block2 = GenResBlk(256, 256, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
         self.block3 = GenResBlk(256, 64, up_sample = False, style_dim=style_dim,return_rgb=True,activation=activation)
     def forward(self, x, s,rgb = None):
-        x = self.att1(x)
         x, rgb = self.block1(x, s,rgb)
-        x = self.att2(x)
         x, rgb = self.block2(x, s,rgb)
         x, rgb = self.block3(x, s,rgb)
         return rgb
 
 
+class FinalUp(nn.Module):
+    def __init__(self,activation = 'lrelu'):
+        super(FinalUp, self).__init__()
+        self.net = nn.Sequential(
+            ResBlock(256, 64, up_sample = True,attention=True,activation=activation),
+            ResBlock(64, 16, up_sample = True,attention=True,activation=activation),
+            ResBlock(16, 8, up_sample = False,activation=activation),
+            ResBlock(8, 3, up_sample = False,activation=activation),
+        )
+    def forward(self, x):
+        x = self.net(x)
+        return x
 
 
 class SemanticFacialFusionModule(nn.Module):
     def __init__(self, norm='in', activation='lrelu', style_dim=662):
         super(SemanticFacialFusionModule, self).__init__()
         self.z_fuse_block_n  = GenResBlk(256, 256, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
-        self.f_up_n = F_up(style_dim=style_dim,activation=activation)
+        # self.f_up_n = F_up(style_dim=style_dim,activation=activation)
+        self.f_up_n = FinalUp(activation=activation)
         self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
         self.segmentation_net.eval()
         for param in self.segmentation_net.parameters():
@@ -449,7 +508,8 @@ class SemanticFacialFusionModule(nn.Module):
         mask_low = F.interpolate(mask_high, scale_factor=0.25,mode='bilinear')
         z_fuse = mask_low * z_dec + (1 - mask_low) * z_enc
         z_fuse,i_low = self.z_fuse_block_n(z_fuse, id_vector)
-        i_r = self.f_up_n(z_fuse,id_vector,i_low)
+        # i_r = self.f_up_n(z_fuse,id_vector,i_low)
+        i_r = self.f_up_n(z_fuse)
         i_r = mask_high * i_r + (1 - mask_high) * target_image
         i_low = mask_low * i_low + (1 - mask_low) * F.interpolate(target_image, scale_factor=0.25,mode='bilinear')
         return i_r, i_low
