@@ -10,7 +10,7 @@ from torchvision import transforms
 import pytorch_lightning as pl
 
 # from models.generator import HififaceGenerator
-from models.gennew import HififaceGenerator
+from models.gen2 import HififaceGenerator
 from models.discriminator import ProjectedDiscriminator
 from torch import nn
 from dataset import *
@@ -41,12 +41,12 @@ class Zface(pl.LightningModule):
         self.preview_num = cfg["preview_num"]
 
         self.G = HififaceGenerator(activation=cfg["activation"])
-        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_small_distilled_patch16_224',
+        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
                                                                     'tf_efficientnet_lite0'])    
                                                                         
 
   
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
         # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
@@ -191,7 +191,7 @@ class Zface(pl.LightningModule):
 
     def train_dataloader(self):
         # dataset = HifiFaceDataset2(["../../Customface","../../facefuck"])
-        dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ"])
+        dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ","../../CelebA-HQ"])
         # dataset = MultiResolutionDataset("../../ffhq/",resolution=self.size)
         num_workers = 4
         persistent_workers = True

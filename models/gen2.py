@@ -12,12 +12,11 @@ from models.face_models.iresnet import iresnet100,iresnet50
 from models.faceparser import BiSeNet
 from models.activation import *
 import math
-from models.modulated_conv2d import  RGBBlock,Conv2DMod,Blur
+from models.modulated_conv2d import  RGBBlock,Conv2DMod,StyledConv2d
 from models.cbam import CBAM
-from models.ca import CoordAtt, ECA
+from models.ca import CoordAtt,ECA
 from einops import rearrange, repeat
 from inplace_abn import InPlaceABN
-from timm.models.layers import trunc_normal_
 
 mean = torch.tensor([0.485, 0.456, 0.406])
 std = torch.tensor([0.229, 0.224, 0.225])
@@ -51,33 +50,6 @@ def set_activate_layer(types):
     return activation
 
 
-
-class LayerNorm(nn.Module):
-    r""" LayerNorm that supports two data formats: channels_last (default) or channels_first. 
-    The ordering of the dimensions in the inputs. channels_last corresponds to inputs with 
-    shape (batch_size, height, width, channels) while channels_first corresponds to inputs 
-    with shape (batch_size, channels, height, width).
-    """
-    def __init__(self, normalized_shape, eps=1e-6, data_format="channels_last"):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(normalized_shape))
-        self.bias = nn.Parameter(torch.zeros(normalized_shape))
-        self.eps = eps
-        self.data_format = data_format
-        if self.data_format not in ["channels_last", "channels_first"]:
-            raise NotImplementedError 
-        self.normalized_shape = (normalized_shape, )
-    
-    def forward(self, x):
-        if self.data_format == "channels_last":
-            return F.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps)
-        elif self.data_format == "channels_first":
-            u = x.mean(1, keepdim=True)
-            s = (x - u).pow(2).mean(1, keepdim=True)
-            x = (x - u) / torch.sqrt(s + self.eps)
-            x = self.weight[:, None, None] * x + self.bias[:, None, None]
-            return x
-
 class Residual(nn.Module):
     def __init__(self, fn):
         super().__init__()
@@ -101,7 +73,8 @@ class LinearAttention(nn.Module):
         self.scale = dim_head ** -0.5
         self.heads = heads
         inner_dim = dim_head * heads
-        self.nonlin = nn.Mish(inplace=True)
+
+        self.nonlin = nn.GELU()
         self.to_q = nn.Conv2d(dim, inner_dim, 1, bias = False)
         self.to_kv = DepthWiseConv2d(dim, inner_dim * 2, 3, padding = 1, bias = False)
         self.to_out = nn.Conv2d(inner_dim, dim, 1)
@@ -216,10 +189,8 @@ class GenResBlk(nn.Module):
             self.up_sample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         else:
             self.up_sample = nn.Identity()
-        self.conv1 = Conv2DMod(dim_in, dim_out, 3, stride=1, dilation=1)
-        self.conv2 = Conv2DMod(dim_out, dim_out, 3, stride=1, dilation=1)
-        self.style1 = nn.Linear(style_dim, dim_in)
-        self.style2 = nn.Linear(style_dim, dim_out)
+        self.conv1 = StyledConv2d(dim_in,dim_out,style_dim)
+        self.conv2 = StyledConv2d(dim_out,dim_out,style_dim)
         if dim_in != dim_out:
             self.conv1x1 = nn.Conv2d(dim_in, dim_out, 1, 1, 0, bias=False)
         else:
@@ -229,12 +200,9 @@ class GenResBlk(nn.Module):
     def forward(self, x, s ,rgb = None):
         x = self.up_sample(x)
         x_ = self.conv1x1(x)
-        s1 = self.style1(s)
-        x = self.conv1(x, s1)
-        x = self.actv(x)
-        s2 = self.style2(s)
-        x = self.conv2(x, s2)
-        x = self.actv(x + x_)
+        x = self.conv1(x, s)
+        x = self.conv2(x, s)
+        x = x + x_
         if exists(self.toRGB):
             rgb = self.toRGB(x,s, rgb)
             return x, rgb
@@ -242,52 +210,7 @@ class GenResBlk(nn.Module):
             return x    
 
 
-# class ResBlock(nn.Module):
-#     def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
-#         super(ResBlock, self).__init__()
-        
-#         main_module_list = []
-#         main_module_list += [
-#             nn.InstanceNorm2d(in_channel,affine=True),
-#             set_activate_layer(activation),
-#             nn.Conv2d(in_channel,in_channel, 3, 1, 1,bias=False)
-#             ]
-#         if down_sample:
-#             main_module_list.append(nn.AvgPool2d(kernel_size=2))
-#         elif up_sample:
-#             main_module_list += [
-#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-#                 ]
 
-#         main_module_list += [
-#             nn.InstanceNorm2d(in_channel,affine=True),
-#             set_activate_layer(activation),
-#             nn.Conv2d(in_channel,out_channel, 3, 1, 1)
-#         ]
-#         if attention:
-#              main_module_list += [
-#                  CoordAtt(out_channel,out_channel)
-#                 #  CBAM(out_channel,2,3)
-#              ]
-             
-#         self.main_path = nn.Sequential(*main_module_list)
-#         side_module_list = []
-#         if in_channel != out_channel:
-#             side_module_list += [nn.Conv2d(in_channel, out_channel, 1, 1, 0, bias=False)]
-#         else:
-#             side_module_list += [nn.Identity()]   
-#         if down_sample:
-#             side_module_list.append(nn.AvgPool2d(kernel_size=2))
-#         elif up_sample:
-#             side_module_list += [
-#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-#                 ]
-#         self.side_path = nn.Sequential(*side_module_list)
-
-#     def forward(self, x):
-#         x1 = self.main_path(x)
-#         x2 = self.side_path(x)
-#         return (x1 + x2) / math.sqrt(2)
     
 class ResBlock(nn.Module):
     def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,bn = False,attention = False,activation='lrelu'):
@@ -324,7 +247,6 @@ class ResBlock(nn.Module):
         if attention:
              main_module_list += [
                  ECA(out_channel)
-                #  CoordAtt(out_channel,out_channel)
              ]
         self.main_path = nn.Sequential(*main_module_list)
         side_module_list = []
@@ -364,11 +286,11 @@ def weight_init(m):
 class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
-        self.F_id100 = iresnet100(pretrained=False, fp16=True)
-        self.F_id100.load_state_dict(torch.load('./weights/backbone_r100.pth'))
-        self.F_id100.eval()
+        self.F_id = iresnet100(pretrained=False, fp16=True)
+        self.F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
+        self.F_id.eval()
         
-        for param in self.F_id100.parameters():
+        for param in self.F_id.parameters():
             param.requires_grad = False
         self.net_recon = ReconNet()
         self.net_recon.load_state_dict(torch.load('./weights/epoch_20.pth')['net_recon'])
@@ -405,7 +327,7 @@ class ShapeAwareIdentityExtractor(nn.Module):
     
 
     def get_id(self, I):
-        v_id = self.F_id100(F.interpolate(I, size=112, mode='bilinear'))
+        v_id = self.F_id(F.interpolate(I, size=112, mode='bilinear'))
         v_id = F.normalize(v_id)
         return v_id
 
@@ -431,102 +353,31 @@ class ShapeAwareIdentityExtractor(nn.Module):
 
 
 
-class Block(nn.Module):
-    r""" ConvNeXt Block. There are two equivalent implementations:
-    (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, H, W)
-    (2) DwConv -> Permute to (N, H, W, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
-    We use (2) as we find it slightly faster in PyTorch
-    
-    Args:
-        dim (int): Number of input channels.
-        drop_path (float): Stochastic depth rate. Default: 0.0
-        layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
-    """
-    def __init__(self, dim, layer_scale_init_value=1e-6):
-        super().__init__()
-        self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv
-        self.norm = LayerNorm(dim, eps=1e-6)
-        self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
-        # self.act = nn.GELU()
-        self.act = nn.Mish(inplace=True)
-        self.pwconv2 = nn.Linear(4 * dim, dim)
-        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim)), 
-                                    requires_grad=True) if layer_scale_init_value > 0 else None
-
-    def forward(self, x):
-        input = x
-        x = self.dwconv(x)
-        x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
-        x = self.norm(x)
-        x = self.pwconv1(x)
-        x = self.act(x)
-        x = self.pwconv2(x)
-        if self.gamma is not None:
-            x = self.gamma * x
-        x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
-
-        x = input + x
-        return x
-
-
-
-
 class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
-
-        self.first =  nn.Sequential(
-            nn.Conv2d(3, 128, 4,4),
-            LayerNorm(128,eps=1e-6, data_format="channels_first")  
-            ) 
-
-        self.b1 = nn.Sequential(
-            Block(128),
-            Block(128),
-        )#64
-
-        self.b2 = nn.Sequential(
-            LayerNorm(128,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(128, 256, kernel_size=2, stride=2),
-            Block(256),
-            Block(256),
-        )#32
-
-        self.b3 = nn.Sequential(
-            LayerNorm(256,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(256, 512, kernel_size=2, stride=2),
-            Block(512),
-            Block(512),
-            Block(512),
-            Block(512),
-            Block(512),
-            Block(512),
-        )#16
-
-        self.b4 = nn.Sequential(
-            LayerNorm(512,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(512, 768, kernel_size=2, stride=2),
-            Block(768),
-            Block(768),
-        )#8
-
-        self.skip = nn.Sequential(
-            Block(128),
-            Block(128),
-        )#8
-        # self.apply(self._init_weights)
+        self.first =   nn.Conv2d(3, 64, 3, 1, 1,bias=False)
+        self.ResBlock1 = ResBlock(64, 128, down_sample=True,attention=True,activation=activation)  #128
+        self.ResBlock2 = ResBlock(128, 256, down_sample=True,attention=True, activation=activation) #64
+        self.ResBlock3 = ResBlock(256, 512, down_sample=True,attention=True, activation=activation) #32
+        self.ResBlock4 = ResBlock(512, 512, down_sample=True,attention=True, activation=activation) #16
+        self.ResBlock5 = ResBlock(512, 512, down_sample=True,attention=True, activation=activation) #8
+        self.ResBlock6 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
+        self.ResBlock7 = ResBlock(512, 512, down_sample=False,attention=True, activation=activation)
+        self.skip = ResBlock(256, 256, down_sample=False,attention=True, activation=activation)
+        self.apply(weight_init)
         
-    # def _init_weights(self, m):
-    #     if isinstance(m, (nn.Conv2d, nn.Linear)):
-    #         trunc_normal_(m.weight, std=.02)
-    #         nn.init.constant_(m.bias, 0)   
+        
         
     def forward(self, x):
         x = self.first(x) # 64x256x256
-        x = self.b1(x) # 64x128x128
-        y = self.b2(x) # 16x64x64
-        y = self.b3(y) # 128x32x32
-        y = self.b4(y) # 256x16xx16
+        x = self.ResBlock1(x) # 32x128x128
+        x = self.ResBlock2(x) # 64x64x64
+        y = self.ResBlock3(x) # 128x32x32
+        y = self.ResBlock4(y) # 256x16xx16
+        y = self.ResBlock5(y) # 512x8x8
+        y = self.ResBlock6(y) # 1024x4x4
+        y = self.ResBlock7(y) # 1024x4x4
         z = self.skip(x)
         return y, z
 
@@ -534,22 +385,16 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=662, activation='lrelu'):
         super(Decoder, self).__init__()
-        self.att1 = attn_and_ff(768)
-        self.d1 = GenResBlk(768, 512, up_sample=False, style_dim=style_dim,activation=activation)
-        self.att2 = attn_and_ff(512)
+        self.d1 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
         self.d2 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
-        self.att3 = attn_and_ff(512)
         self.d3 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
-        self.d4 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
-        self.d5 = GenResBlk(256, 128, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d4 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
         self.apply(weight_init)
 
     def forward(self, x, s):
-        x = self.att1(x)
         x = self.d1(x,s)
-        x = self.att2(x)
         x = self.d2(x,s)
-        x = self.att3(x)
         x = self.d3(x,s)
         x = self.d4(x,s)
         x = self.d5(x,s)
@@ -557,40 +402,26 @@ class Decoder(nn.Module):
 
 
 
-class F_up(nn.Module):
-    def __init__(self, style_dim,activation = 'lrelu'):
-        super(F_up, self).__init__()
-        self.block1 = GenResBlk(256, 256, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.block2 = GenResBlk(256, 256, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.block3 = GenResBlk(256, 64, up_sample = False, style_dim=style_dim,return_rgb=True,activation=activation)
-    def forward(self, x, s,rgb = None):
-        x, rgb = self.block1(x, s,rgb)
-        x, rgb = self.block2(x, s,rgb)
-        x, rgb = self.block3(x, s,rgb)
-        return rgb
-
-
 class FinalUp(nn.Module):
     def __init__(self,activation = 'lrelu'):
         super(FinalUp, self).__init__()
         self.net = nn.Sequential(
+            ResBlock(256, 128, up_sample = True,attention=True,activation=activation),
             ResBlock(128, 64, up_sample = True,attention=True,activation=activation),
-            ResBlock(64, 32, up_sample = True,attention=True,activation=activation),
-            ResBlock(32, 32, up_sample = False,attention=True,activation=activation),
-            ResBlock(32, 3, up_sample = False,attention=True,activation=activation),
+            ResBlock(64, 16, up_sample = False,attention=True,activation=activation),
+            ResBlock(16, 3, up_sample = False,attention=True,activation=activation),
         )
     def forward(self, x):
         x = self.net(x)
         return x
 
 
-
 class SemanticFacialFusionModule(nn.Module):
     def __init__(self, norm='in', activation='lrelu', style_dim=662):
         super(SemanticFacialFusionModule, self).__init__()
-        self.z_fuse_block_n  = GenResBlk(128, 128, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
+        self.z_fuse_block_n  = GenResBlk(256, 256, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
         # self.f_up_n = F_up(style_dim=style_dim,activation=activation)
-        self.f_up = FinalUp(activation=activation)
+        self.f_up_n = FinalUp(activation=activation)
         self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
         self.segmentation_net.eval()
         for param in self.segmentation_net.parameters():
@@ -615,7 +446,7 @@ class SemanticFacialFusionModule(nn.Module):
         z_fuse = mask_low * z_dec + (1 - mask_low) * z_enc
         z_fuse,i_low = self.z_fuse_block_n(z_fuse, id_vector)
         # i_r = self.f_up_n(z_fuse,id_vector,i_low)
-        i_r = self.f_up(z_fuse)
+        i_r = self.f_up_n(z_fuse)
         i_r = mask_high * i_r + (1 - mask_high) * target_image
         i_low = mask_low * i_low + (1 - mask_low) * F.interpolate(target_image, scale_factor=0.25,mode='bilinear')
         return i_r, i_low

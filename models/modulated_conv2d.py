@@ -4,6 +4,8 @@ from torch import nn
 from torch.nn.utils import spectral_norm
 import torch.nn.functional as F
 from kornia.filters import filter2d
+import math
+
 
 def make_kernel(k):
     k = torch.tensor(k, dtype=torch.float32)
@@ -146,49 +148,75 @@ class Conv2DMod(nn.Module):
 
 
 
-# class Conv2DMod1(nn.Module):
-#     def __init__(self, in_chan, out_chan, kernel, demod=True, stride=1, dilation=1, eps = 1e-8, **kwargs):
-#         super().__init__()
-#         self.filters = out_chan
-#         self.demod = demod
-#         self.kernel = kernel
-#         self.stride = stride
-#         self.dilation = dilation
-#         self.weight = nn.Parameter(torch.randn((out_chan, in_chan, kernel, kernel)))
-#         self.eps = eps
-#         nn.init.kaiming_normal_(self.weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
 
-#     def _get_same_padding(self, size, kernel, dilation, stride):
-#         return ((size - 1) * (stride - 1) + dilation * (kernel - 1)) // 2
 
-#     def forward(self, x, z_id):
-#         # b, c, h, w = x.shape
+class ModulatedConv2d(nn.Module):
+    def __init__(
+            self,
+            channels_in,
+            channels_out,
+            style_dim,
+            kernel_size,
+            demodulate=True
+    ):
+        super().__init__()
+        # create conv
+        self.weight = nn.Parameter(
+            torch.randn(channels_out, channels_in, kernel_size, kernel_size)
+        )
+        # create modulation network
+        self.modulation = nn.Linear(style_dim, channels_in, bias=True)
+        self.modulation.bias.data.fill_(1.0)
+        # create demodulation parameters
+        self.demodulate = demodulate
+        if self.demodulate:
+            self.register_buffer("style_inv", torch.randn(1, 1, channels_in, 1, 1))
+        # some service staff
+        self.scale = 1.0 / math.sqrt(channels_in * kernel_size ** 2)
+        self.padding = kernel_size // 2
 
-#         w1 = z_id[:, None, :, None, None]
-#         w2 = self.weight[None, :, :, :, :]
-#         weights = w2 * (w1 + 1)
+    def forward(self, x, style):
+        modulation = self.get_modulation(style)
+        x = modulation * x
+        x = F.conv2d(x, self.weight, padding=self.padding)
+        if self.demodulate:
+            demodulation = self.get_demodulation(style)
+            x = demodulation * x
+        return x
 
-#         if self.demod:
-#             d = torch.rsqrt((weights ** 2).sum(dim=(2, 3, 4), keepdim=True) + self.eps)
-#             weights = weights * d
+    def get_modulation(self, style):
+        style = self.modulation(style).view(style.size(0), -1, 1, 1)
+        modulation = self.scale * style
+        return modulation
 
-#         x = x.reshape(1, -1, x.size(2), x.size(3))
+    def get_demodulation(self, style):
+        w = self.weight.unsqueeze(0)
+        norm = torch.rsqrt((self.scale * self.style_inv * w).pow(2).sum([2, 3, 4]) + 1e-8)
+        demodulation = norm
+        return demodulation.view(*demodulation.size(), 1, 1)
+    
+    
+class StyledConv2d(nn.Module):
+    def __init__(
+        self,
+        channels_in,
+        channels_out,
+        style_dim,
+        kernel_size = 3,
+        demodulate=True
+    ):
+        super().__init__()
+        self.conv = ModulatedConv2d(
+            channels_in,
+            channels_out,
+            style_dim,
+            kernel_size,
+            demodulate=demodulate
+        )
+        self.bias = nn.Parameter(torch.zeros(1, channels_out, 1, 1))
+        self.act = nn.LeakyReLU(0.1,inplace=True)
         
-#         # _, _, *ws = weights.shape
-#         ws = weights.size()[2:]
-        
-
-#         weights = weights.reshape(x.size(0) * self.filters, *ws)
-
-#         padding = self._get_same_padding(x.size(2), self.kernel, self.dilation, self.stride)
-#         x = F.conv2d(x, weights, padding=padding, groups=x.size(0))
-
-#         x = x.reshape(-1, self.filters, x.size(2), x.size(3))
-#         return x
-
-#     def __repr__(self):
-#         return (
-#             f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]},"
-#             f" {self.weight.shape[2]}, stride={self.stride}, dilation={self.dilation}, demodulation={self.demod})"
-#         )
-        
+    def forward(self, input, style):
+        out = self.conv(input, style)
+        out = self.act(out + self.bias)
+        return out    
