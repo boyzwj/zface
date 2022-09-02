@@ -20,8 +20,8 @@ class HifiFaceLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
         self.W_adv = 0.125
-        self.W_id = 5
-        # self.W_seg = 100
+        self.W_id = 1
+        self.W_seg = 100
         self.W_recon = 20
         self.W_cycle = 1
         self.W_lpips = 5
@@ -54,13 +54,13 @@ class HifiFaceLoss(LossInterface):
             self.loss_dict["L_id"] = round(L_id.item(), 4)
 
         # Seg loss
-        # if self.W_seg:
-        #     L_seg = Loss.get_L1_loss_with_same_person(G_dict["mask_high"], G_dict["mask_target"], G_dict["same_person"], self.batch_size)
-        #     # L_seg += Loss.get_L1_loss_with_same_person(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'), G_dict["same_person"], self.batch_size)
-        #     # L_seg = Loss.get_L1_loss(G_dict["mask_high"], G_dict["mask_target"])
-        #     # L_seg += Loss.get_L1_loss(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'))
-        #     L_G += self.W_seg * L_seg
-        #     self.loss_dict["L_seg"] = round(L_seg.item(), 4)
+        if self.W_seg:
+            # L_seg = Loss.get_L1_loss_with_same_person(G_dict["mask_high"], G_dict["mask_target"], G_dict["same_person"], self.batch_size)
+            # L_seg += Loss.get_L1_loss_with_same_person(G_dict["mask_low"],F.interpolate(G_dict["target_mask"], scale_factor=0.25, mode='bilinear'), G_dict["same_person"], self.batch_size)
+            L_seg = Loss.get_L1_loss(G_dict["mask_high"], G_dict["mask_target"])
+            L_seg += Loss.get_L1_loss(G_dict["mask_low"],F.interpolate(G_dict["mask_target"], scale_factor=0.25, mode='bilinear'))
+            L_G += self.W_seg * L_seg
+            self.loss_dict["L_seg"] = round(L_seg.item(), 4)
         # Reconstruction loss
         if self.W_recon:
             L_recon = Loss.get_L1_loss_with_same_person(G_dict["I_swapped_high"], G_dict["I_target"], G_dict["same_person"], self.batch_size)
