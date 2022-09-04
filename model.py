@@ -10,7 +10,7 @@ from torchvision import transforms
 import pytorch_lightning as pl
 
 # from models.generator import HififaceGenerator
-from models.gennew import HififaceGenerator
+from models.gen2 import HififaceGenerator
 from models.discriminator import ProjectedDiscriminator
 from torch import nn
 from dataset import *
@@ -41,20 +41,14 @@ class Zface(pl.LightningModule):
         self.preview_num = cfg["preview_num"]
 
 
-        self.segmentation_net = torch.jit.load('./weights/face_parsing.farl.lapa.main_ema_136500_jit191.pt', map_location="cuda")
-        self.segmentation_net.eval()
-        for param in self.segmentation_net.parameters():
-            param.requires_grad = False
-        self.blur = transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 5))
-
         self.G = HififaceGenerator(activation=cfg["activation"])
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_small_distilled_patch16_224',
                                                                     'tf_efficientnet_lite0'])    
                                                                         
 
 
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -65,20 +59,10 @@ class Zface(pl.LightningModule):
         
         self.automatic_optimization = False
 
-    def get_mask(self,I):
-        with torch.no_grad():
-            size = I.size()[-1]
-            I = unnormalize(I)
-            logit , _  = self.segmentation_net(F.interpolate(I, size=(448,448), mode='bilinear'))
-            parsing = logit.max(1)[1]
-            face_mask = torch.where((parsing>0)&(parsing<10), 1, 0)
-            face_mask = F.interpolate(face_mask.unsqueeze(1).float(), size=(size,size), mode='nearest')
-            face_mask = self.blur(face_mask)
-        return face_mask
 
 
-    def forward(self, I_source, I_target):
-        img = self.G(I_source, I_target)[0]
+    def forward(self, I_source, I_target,mask):
+        img = self.G(I_source, I_target,mask)[0]
         return img
 
     
@@ -106,26 +90,31 @@ class Zface(pl.LightningModule):
             
     @torch.no_grad()
     def send_previw(self):
-        output = self.G.inference(self.src_img, self.dst_img)
+        output = self.G.inference(self.src_img, self.dst_img,self.dst_msk)
         result =  []
-        for src, dst, out  in zip(self.src_img.cpu(),self.dst_img.cpu(),output.cpu()):
-            result = result + [src, dst, out]
+        for src, dst,dst_msk, out  in zip(self.src_img.cpu(),self.dst_img.cpu(),self.dst_msk.cpu(),output.cpu()):
+            src = unnormalize(src)
+            dst = unnormalize(dst)
+            out = unnormalize(out)
+            dst_msk = torch.ones_like(dst) * dst_msk
+            result = result + [src, dst, dst_msk, out]
         self.c2s.put({'op':"show",'previews': result})
                 
             
     def training_step(self, batch, batch_idx):
         opt_g, opt_d = self.optimizers(use_pl_optimizer=True)
-        I_source ,I_target, same_person = batch
+        I_source ,I_target,mask_target, same_person = batch
 
-        mask_target = self.get_mask(I_target)
+        # mask_target = self.get_mask(I_target)
 
         if self.src_img == None:
             self.src_img = I_source[:3]
             self.dst_img = I_target[:3]
+            self.dst_msk = mask_target[:3]
             
         self.process_cmd()
-        I_swapped_high,I_swapped_low,mask_high,mask_low,c_fuse,id_source = self.G(I_source, I_target)
-        I_cycle = self.G(I_swapped_high,I_source)[0]
+        I_swapped_high,I_swapped_low,c_fuse,id_source = self.G(I_source, I_target,mask_target)
+        I_cycle = self.G(I_source,I_swapped_high,mask_target)[0]
         # Arcface 
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
         id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
@@ -150,8 +139,8 @@ class Zface(pl.LightningModule):
             "I_swapped_high": I_swapped_high,
             "I_swapped_low": I_swapped_low,
             "mask_target": mask_target,
-            "mask_high": mask_high,
-            "mask_low": mask_low,
+            # "mask_high": mask_high,
+            # "mask_low": mask_low,
             "I_cycle": I_cycle,
             "same_person": same_person,
             "id_source": id_source,
@@ -171,21 +160,21 @@ class Zface(pl.LightningModule):
         ###########
         # train D #
         ###########
-        I_target.requires_grad_()
-        d_true = self.D(I_target)
-        d_fake = self.D(I_swapped_high.detach())
+        # I_target.requires_grad_()
+        # d_true = self.D(I_target)
+        # d_fake = self.D(I_swapped_high.detach())
 
-        D_dict = {
-            "d_true": d_true,
-            "d_fake": d_fake,
-            "I_target": I_target
-        }
+        # D_dict = {
+        #     "d_true": d_true,
+        #     "d_fake": d_fake,
+        #     "I_target": I_target
+        # }
 
-        d_loss = self.loss.get_loss_D(D_dict)
+        # d_loss = self.loss.get_loss_D(D_dict)
         
-        opt_d.zero_grad()
-        self.manual_backward(d_loss)
-        opt_d.step()
+        # opt_d.zero_grad()
+        # self.manual_backward(d_loss)
+        # opt_d.step()
         # endregion
 
         # region logging
@@ -203,15 +192,16 @@ class Zface(pl.LightningModule):
         
         optimizer_g = torch.optim.AdamW(self.G.parameters(), lr=self.lr, betas=(self.b1, self.b2))
         optimizer_list.append({"optimizer": optimizer_g})
-        optimizer_d = torch.optim.AdamW(self.D.parameters(), lr=self.lr, betas=(self.b1, self.b2))
+        optimizer_d = torch.optim.AdamW(self.D.parameters(), lr=self.lr * 0.8 , betas=(self.b1, self.b2))
         optimizer_list.append({"optimizer": optimizer_d})
         
         return optimizer_list
 
     def train_dataloader(self):
         # dataset = HifiFaceDataset2(["../../Customface","../../facefuck"])
-        dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ","../../CelebA-HQ"])
+        # dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ","../../CelebA-HQ"])
         # dataset = MultiResolutionDataset("../../ffhq/",resolution=self.size)
+        dataset = Ds("./data/test",resolution=self.size)
         num_workers = 4
         persistent_workers = True
         # if(platform.system()=='Windows'):

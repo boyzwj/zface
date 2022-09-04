@@ -188,9 +188,9 @@ class App(QMainWindow):
 
 
     def tensor2img(self, tensor, out_type=np.uint8):
-        tensor = [unnormalize(t)  for t in tensor]
+        # tensor = [unnormalize(t)  for t in tensor]
         # n_img = len(tensor)
-        grid = make_grid(tensor,value_range=(-1,1), nrow=3, normalize=False)
+        grid = make_grid(tensor,value_range=(-1,1), nrow=4, normalize=False)
         ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).to('cpu', torch.uint8).numpy()        
         ndarr = np.transpose(ndarr[[2, 1, 0], :, :], (1, 2, 0))  # HWC, BGR
         return ndarr.astype(out_type)

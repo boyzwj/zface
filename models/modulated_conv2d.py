@@ -214,7 +214,7 @@ class StyledConv2d(nn.Module):
             demodulate=demodulate
         )
         self.bias = nn.Parameter(torch.zeros(1, channels_out, 1, 1))
-        self.act = nn.LeakyReLU(0.1,inplace=True)
+        self.act = nn.Mish(inplace=True)
         
     def forward(self, input, style):
         out = self.conv(input, style)

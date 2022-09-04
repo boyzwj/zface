@@ -188,7 +188,111 @@ class HifiFaceDataset2(Dataset):
     
 
 
+class Ds(Dataset):
+    def __init__(self, path, resolution=256, same_prob=0.5):
+        self.path = path
+        self.same_prob = same_prob
+        self.resolution = resolution
+        self.transform = transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.ColorJitter(0.2, 0.2, 0.2, 0.01),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        
+        self.msk_trans = transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.ToTensor()
+        ])   
+        env = lmdb.open(
+            self.path,
+            max_readers=32,
+            readonly=True,
+            lock=False,
+            readahead=False,
+            meminit=False,
+        )
+        if not env:
+            raise IOError('Cannot open lmdb dataset', self.path)
+        with env.begin(write=False) as txn:
+            self.length = int(txn.get('id-length'.encode('utf-8')).decode('utf-8'))
+            print(f"begin load  data {self.length}")
+        env.close()
 
+    def open_lmdb(self):
+        self.env = lmdb.open(
+            self.path,
+            max_readers=32,
+            readonly=True,
+            lock=False,
+            readahead=False,
+            meminit=False,
+        )
+        if not self.env:
+            raise IOError('Cannot open lmdb dataset', self.path)
+        with self.env.begin(write=False) as txn:
+            self.txn = txn        
+              
+    def __len__(self):
+        return self.length
+
+    def get_src_img_data(self,id):
+        if not hasattr(self, 'txn'):
+            self.open_lmdb()
+        with self.env.begin(write=False) as txn:
+            img_key = f"img-{str(id).zfill(7)}".encode("utf-8")
+            img_bytes = txn.get(img_key)
+        buffer = BytesIO(img_bytes)
+        img = Image.open(buffer)
+        return img 
+
+    def get_dst_img_data(self,id):
+        if not hasattr(self, 'txn'):
+            self.open_lmdb()
+        with self.env.begin(write=False) as txn:
+            img_key = f"img-{str(id).zfill(7)}".encode("utf-8")
+            msk_key = f"msk-{str(id).zfill(7)}".encode("utf-8")
+            img_bytes = txn.get(img_key)
+            msk_bytes  = txn.get(msk_key)
+
+
+        img_buffer = BytesIO(img_bytes)
+        img = Image.open(img_buffer)
+        msk_buffer = BytesIO(msk_bytes)
+        msk = Image.open(msk_buffer)
+
+        return img, msk         
+
+    def get_id_in_range(self,idx):
+        if not hasattr(self, 'txn'):
+            self.open_lmdb()
+        with self.env.begin(write=False) as txn:
+            key = f"id-{str(idx).zfill(7)}".encode("utf-8")
+            data = txn.get(key)
+            id_range =  np.fromstring(data, dtype=np.uint32)
+            
+        return  random.randint(id_range[0],id_range[1])
+
+
+    def __getitem__(self, idx):
+        src_id  = self.get_id_in_range(idx)
+        l = self.__len__()
+        if random.random() > self.same_prob:
+            t_idx = random.randrange(l)
+        else:
+            t_idx = idx
+        dst_id = self.get_id_in_range(t_idx)
+        if t_idx == idx:
+            same_person = 1
+        else:
+            same_person = 0 
+        src_img =  self.get_src_img_data(src_id)
+        dst_img, dst_msk =  self.get_dst_img_data(dst_id)
+
+        src_img = self.transform(src_img)
+        dst_img = self.transform(dst_img)
+        dst_msk = self.msk_trans(dst_msk)
+        return src_img, dst_img,dst_msk,same_person     
 
 class MultiResolutionDataset(Dataset):
     def __init__(self, path, resolution=256, same_prob=0.5):
@@ -202,6 +306,7 @@ class MultiResolutionDataset(Dataset):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
+     
         self.blacklist = np.array([40650])
         env = lmdb.open(
             self.path,
