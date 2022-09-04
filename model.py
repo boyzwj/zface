@@ -48,7 +48,7 @@ class Zface(pl.LightningModule):
 
 
         # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -160,21 +160,21 @@ class Zface(pl.LightningModule):
         ###########
         # train D #
         ###########
-        # I_target.requires_grad_()
-        # d_true = self.D(I_target)
-        # d_fake = self.D(I_swapped_high.detach())
+        I_target.requires_grad_()
+        d_true = self.D(I_target)
+        d_fake = self.D(I_swapped_high.detach())
 
-        # D_dict = {
-        #     "d_true": d_true,
-        #     "d_fake": d_fake,
-        #     "I_target": I_target
-        # }
+        D_dict = {
+            "d_true": d_true,
+            "d_fake": d_fake,
+            "I_target": I_target
+        }
 
-        # d_loss = self.loss.get_loss_D(D_dict)
+        d_loss = self.loss.get_loss_D(D_dict)
         
-        # opt_d.zero_grad()
-        # self.manual_backward(d_loss)
-        # opt_d.step()
+        opt_d.zero_grad()
+        self.manual_backward(d_loss)
+        opt_d.step()
         # endregion
 
         # region logging

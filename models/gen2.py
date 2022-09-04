@@ -429,7 +429,7 @@ class FinalUp(nn.Module):
             ResBlock(96, 48, up_sample = True,attention=True,activation=activation),
             ResBlock(48, 3, up_sample = False,attention=True,activation=activation),
         )
-        self.apply(weight_init)
+
     def forward(self, x):
         x = self.net(x)
         return x
@@ -441,7 +441,7 @@ class SemanticFacialFusionModule(nn.Module):
         self.z_fuse_block_n  = GenResBlk(192, 192, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
         # self.f_up_n = F_up(style_dim=style_dim,activation=activation)
         self.f_up_n = FinalUp(activation=activation)
-
+        self.apply(weight_init)
     
     
     def forward(self, target_image,mask_high, z_enc, z_dec, id_vector):
