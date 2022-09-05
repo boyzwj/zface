@@ -173,6 +173,7 @@ class ModulatedConv2d(nn.Module):
             self.register_buffer("style_inv", torch.randn(1, 1, channels_in, 1, 1))
         # some service staff
         self.scale = 1.0 / math.sqrt(channels_in * kernel_size ** 2)
+        self.channels_out = channels_out
         self.padding = kernel_size // 2
 
     def forward(self, x, style):
@@ -193,7 +194,7 @@ class ModulatedConv2d(nn.Module):
         w = self.weight.unsqueeze(0)
         norm = torch.rsqrt((self.scale * self.style_inv * w).pow(2).sum([2, 3, 4]) + 1e-8)
         demodulation = norm
-        return demodulation.view(*demodulation.size(), 1, 1)
+        return demodulation.view(1,self.channels_out, 1, 1)
     
     
 class StyledConv2d(nn.Module):

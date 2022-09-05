@@ -1,10 +1,10 @@
 from models.ca import CoordAtt
 from models.modulated_conv2d import Conv2DMod,StyledConv2d
-from models.gen2 import  GenResBlk
+from models.gen2 import  GenResBlk,Decoder,Encoder,ShapeAwareIdentityExtractor
 import torch
-
-
-
+from models.face_models.iresnet import iresnet100
+from models.bfm import ParametricFaceModel
+from models.reconnet import ReconNet
 
 
 
@@ -13,8 +13,13 @@ import torch
 
 
 if __name__ == '__main__':
-    m = GenResBlk(512,512)
-    x = torch.randn(6,512,8,8)
-    s = torch.randn(6,662)
-    x = m(x,s)
-    print(x.shape)
+
+    F_id = torch.jit.script(ParametricFaceModel(is_train=False))
+    # F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
+    # F_id.eval()
+    # m = torch.jit.script(Encoder())
+    # # m = GenResBlk(128,64)
+    # x = torch.randn(4,3,256,256)
+    # # s = torch.randn(4,662)
+    # x = m(x)
+    # print(x)

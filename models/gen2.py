@@ -191,6 +191,7 @@ class GenResBlk(nn.Module):
             self.up_sample = nn.Identity()
         self.conv1 = StyledConv2d(dim_in,dim_out,style_dim)
         self.conv2 = StyledConv2d(dim_out,dim_out,style_dim)
+        self.att = ECA(dim_out)
         if dim_in != dim_out:
             self.conv1x1 = nn.Conv2d(dim_in, dim_out, 1, 1, 0, bias=False)
         else:
@@ -202,6 +203,7 @@ class GenResBlk(nn.Module):
         x_ = self.conv1x1(x)
         x = self.conv1(x, s)
         x = self.conv2(x, s)
+        x = self.att(x)
         x = x + x_
         if exists(self.toRGB):
             rgb = self.toRGB(x,s, rgb)
@@ -284,13 +286,13 @@ def weight_init(m):
 class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
-        self.F_id = iresnet100(pretrained=False, fp16=True)
+        self.F_id = torch.jit.script(iresnet100(pretrained=False, fp16=True))
         self.F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
         self.F_id.eval()
         
         for param in self.F_id.parameters():
             param.requires_grad = False
-        self.net_recon = ReconNet()
+        self.net_recon = torch.jit.script(ReconNet())
         self.net_recon.load_state_dict(torch.load('./weights/epoch_20.pth')['net_recon'])
         self.net_recon.eval()
         for param in self.net_recon.parameters():
@@ -354,34 +356,34 @@ class ShapeAwareIdentityExtractor(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
-        self.first =   nn.Conv2d(3, 64, 3, 1, 1,bias=False)
-
+        self.first =  nn.Sequential(
+            nn.Conv2d(3, 96, 3, 1, 1),
+        )
         self.stage1 = nn.Sequential(
-            ResBlock(64, 128, down_sample=True,attention=True,activation=activation),
-            ResBlock(128, 128, down_sample=False,attention=True,activation=activation),
+            ResBlock(96, 192, down_sample=True,attention=True,activation=activation),
+            ResBlock(192, 192, down_sample=False,attention=True,activation=activation),
         ) #128
 
-
         self.stage2 = nn.Sequential(
-            ResBlock(128, 192, down_sample=True,attention=True,activation=activation),
-            ResBlock(192, 192, down_sample=False,attention=True,activation=activation),
+            ResBlock(192, 256, down_sample=True,attention=True,activation=activation),
+            ResBlock(256, 256, down_sample=False,attention=True,activation=activation),
         ) #64
 
         self.stage3 = nn.Sequential(
-            ResBlock(192, 256, down_sample=True,attention=True,activation=activation),
-            ResBlock(256, 256, down_sample=False,attention=True,activation=activation),
+            ResBlock(256, 384, down_sample=True,attention=True,activation=activation),
+            ResBlock(384, 384, down_sample=False,attention=True,activation=activation),
         ) #32
 
         self.stage4 =  nn.Sequential(
-            ResBlock(256, 384, down_sample=True,attention=True,activation=activation),
-            ResBlock(384, 384, down_sample=False,attention=True,activation=activation),
+            ResBlock(384, 512, down_sample=True,attention=True,activation=activation),
+            ResBlock(512, 512, down_sample=False,attention=True,activation=activation),
         ) #16
 
         self.stage5 =  nn.Sequential(
-            ResBlock(384, 512, down_sample=True,attention=True,activation=activation)
+            ResBlock(512, 768, down_sample=True,attention=True,activation=activation)
         ) #16
         self.skip = nn.Sequential(
-            ResBlock(192, 192, down_sample=False,attention=True, activation=activation),
+            ResBlock(256, 256, down_sample=False,attention=True, activation=activation),
         )
         self.apply(weight_init)
         
@@ -401,15 +403,17 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=662, activation='lrelu'):
         super(Decoder, self).__init__()
+        self.d0 = GenResBlk(768, 512, up_sample=False, style_dim=style_dim,activation=activation) #8
         self.d1 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation) #8
         self.d2 = GenResBlk(512, 384, up_sample=True, style_dim=style_dim,activation=activation)  #16
         self.d3 = GenResBlk(384, 384, up_sample=False, style_dim=style_dim,activation=activation) #16
-        self.d4 = GenResBlk(384, 192, up_sample=True, style_dim=style_dim,activation=activation)  #32
-        self.d5 = GenResBlk(192, 192, up_sample=False, style_dim=style_dim,activation=activation)  #32
-        self.d6 = GenResBlk(192, 192,  up_sample=True, style_dim=style_dim,activation=activation)   #64
+        self.d4 = GenResBlk(384, 256, up_sample=True, style_dim=style_dim,activation=activation)  #32
+        self.d5 = GenResBlk(256, 256, up_sample=False, style_dim=style_dim,activation=activation)  #32
+        self.d6 = GenResBlk(256, 256,  up_sample=True, style_dim=style_dim,activation=activation)   #64
         self.apply(weight_init)
 
     def forward(self, x, s):
+        x = self.d0(x,s)
         x = self.d1(x,s)
         x = self.d2(x,s)
         x = self.d3(x,s)
@@ -424,10 +428,10 @@ class FinalUp(nn.Module):
     def __init__(self,activation = 'lrelu'):
         super(FinalUp, self).__init__()
         self.net = nn.Sequential(
-            ResBlock(192, 96, up_sample = True,attention=True,activation=activation),
-            ResBlock(96, 96, up_sample = False,attention=True,activation=activation),
-            ResBlock(96, 48, up_sample = True,attention=True,activation=activation),
-            ResBlock(48, 3, up_sample = False,attention=True,activation=activation),
+            ResBlock(256, 128, up_sample = True,attention=True,activation=activation),
+            ResBlock(128, 128, up_sample = False,attention=True,activation=activation),
+            ResBlock(128, 64, up_sample = True,attention=True,activation=activation),
+            ResBlock(64, 3, up_sample = False,attention=True,activation=activation),
         )
 
     def forward(self, x):
@@ -438,7 +442,7 @@ class FinalUp(nn.Module):
 class SemanticFacialFusionModule(nn.Module):
     def __init__(self, norm='in', activation='lrelu', style_dim=662):
         super(SemanticFacialFusionModule, self).__init__()
-        self.z_fuse_block_n  = GenResBlk(192, 192, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
+        self.z_fuse_block_n  = GenResBlk(256, 256, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
         # self.f_up_n = F_up(style_dim=style_dim,activation=activation)
         self.f_up_n = FinalUp(activation=activation)
         self.apply(weight_init)
@@ -460,7 +464,7 @@ class HififaceGenerator(nn.Module):
         super(HififaceGenerator, self).__init__()
         self.SAIE = ShapeAwareIdentityExtractor()
         self.SFFM = SemanticFacialFusionModule(activation=activation)
-        self.E = Encoder(activation=activation)
+        self.E = torch.jit.script(Encoder(activation=activation))
         self.D = Decoder(activation=activation)
 
     @torch.no_grad()

@@ -1,209 +1,389 @@
-from collections import abc
+# Copyright (c) 2021, NVIDIA CORPORATION & AFFILIATES.  All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+
+"""Custom PyTorch ops for efficient resampling of 2D images."""
+
 import os
-
+import numpy as np
 import torch
-from torch.nn import functional as F
-from torch.autograd import Function
-from torch.utils.cpp_extension import load
 
+from .. import custom_ops
+from .. import misc
+from . import conv2d_gradfix
 
-module_path = os.path.dirname(__file__)
-upfirdn2d_op = load(
-    "upfirdn2d",
-    sources=[
-        os.path.join(module_path, "upfirdn2d.cpp"),
-        os.path.join(module_path, "upfirdn2d_kernel.cu"),
-    ],
-)
+#----------------------------------------------------------------------------
 
+_plugin = None
 
-class UpFirDn2dBackward(Function):
-    @staticmethod
-    def forward(
-        ctx, grad_output, kernel, grad_kernel, up, down, pad, g_pad, in_size, out_size
-    ):
-
-        up_x, up_y = up
-        down_x, down_y = down
-        g_pad_x0, g_pad_x1, g_pad_y0, g_pad_y1 = g_pad
-
-        grad_output = grad_output.reshape(-1, out_size[0], out_size[1], 1)
-
-        grad_input = upfirdn2d_op.upfirdn2d(
-            grad_output,
-            grad_kernel,
-            down_x,
-            down_y,
-            up_x,
-            up_y,
-            g_pad_x0,
-            g_pad_x1,
-            g_pad_y0,
-            g_pad_y1,
+def _init():
+    global _plugin
+    if _plugin is None:
+        _plugin = custom_ops.get_plugin(
+            module_name='upfirdn2d_plugin',
+            sources=['upfirdn2d.cpp', 'upfirdn2d.cu'],
+            headers=['upfirdn2d.h'],
+            source_dir=os.path.dirname(__file__),
+            extra_cuda_cflags=['--use_fast_math'],
         )
-        grad_input = grad_input.view(in_size[0], in_size[1], in_size[2], in_size[3])
+    return True
 
-        ctx.save_for_backward(kernel)
+def _parse_scaling(scaling):
+    if isinstance(scaling, int):
+        scaling = [scaling, scaling]
+    assert isinstance(scaling, (list, tuple))
+    assert all(isinstance(x, int) for x in scaling)
+    sx, sy = scaling
+    assert sx >= 1 and sy >= 1
+    return sx, sy
 
-        pad_x0, pad_x1, pad_y0, pad_y1 = pad
+def _parse_padding(padding):
+    if isinstance(padding, int):
+        padding = [padding, padding]
+    assert isinstance(padding, (list, tuple))
+    assert all(isinstance(x, int) for x in padding)
+    if len(padding) == 2:
+        padx, pady = padding
+        padding = [padx, padx, pady, pady]
+    padx0, padx1, pady0, pady1 = padding
+    return padx0, padx1, pady0, pady1
 
-        ctx.up_x = up_x
-        ctx.up_y = up_y
-        ctx.down_x = down_x
-        ctx.down_y = down_y
-        ctx.pad_x0 = pad_x0
-        ctx.pad_x1 = pad_x1
-        ctx.pad_y0 = pad_y0
-        ctx.pad_y1 = pad_y1
-        ctx.in_size = in_size
-        ctx.out_size = out_size
+def _get_filter_size(f):
+    if f is None:
+        return 1, 1
+    assert isinstance(f, torch.Tensor) and f.ndim in [1, 2]
+    fw = f.shape[-1]
+    fh = f.shape[0]
+    with misc.suppress_tracer_warnings():
+        fw = int(fw)
+        fh = int(fh)
+    misc.assert_shape(f, [fh, fw][:f.ndim])
+    assert fw >= 1 and fh >= 1
+    return fw, fh
 
-        return grad_input
+#----------------------------------------------------------------------------
 
-    @staticmethod
-    def backward(ctx, gradgrad_input):
-        kernel, = ctx.saved_tensors
+def setup_filter(f, device=torch.device('cpu'), normalize=True, flip_filter=False, gain=1, separable=None):
+    r"""Convenience function to setup 2D FIR filter for `upfirdn2d()`.
 
-        gradgrad_input = gradgrad_input.reshape(-1, ctx.in_size[2], ctx.in_size[3], 1)
+    Args:
+        f:           Torch tensor, numpy array, or python list of the shape
+                     `[filter_height, filter_width]` (non-separable),
+                     `[filter_taps]` (separable),
+                     `[]` (impulse), or
+                     `None` (identity).
+        device:      Result device (default: cpu).
+        normalize:   Normalize the filter so that it retains the magnitude
+                     for constant input signal (DC)? (default: True).
+        flip_filter: Flip the filter? (default: False).
+        gain:        Overall scaling factor for signal magnitude (default: 1).
+        separable:   Return a separable filter? (default: select automatically).
 
-        gradgrad_out = upfirdn2d_op.upfirdn2d(
-            gradgrad_input,
-            kernel,
-            ctx.up_x,
-            ctx.up_y,
-            ctx.down_x,
-            ctx.down_y,
-            ctx.pad_x0,
-            ctx.pad_x1,
-            ctx.pad_y0,
-            ctx.pad_y1,
-        )
-        # gradgrad_out = gradgrad_out.view(ctx.in_size[0], ctx.out_size[0], ctx.out_size[1], ctx.in_size[3])
-        gradgrad_out = gradgrad_out.view(
-            ctx.in_size[0], ctx.in_size[1], ctx.out_size[0], ctx.out_size[1]
-        )
+    Returns:
+        Float32 tensor of the shape
+        `[filter_height, filter_width]` (non-separable) or
+        `[filter_taps]` (separable).
+    """
+    # Validate.
+    if f is None:
+        f = 1
+    f = torch.as_tensor(f, dtype=torch.float32)
+    assert f.ndim in [0, 1, 2]
+    assert f.numel() > 0
+    if f.ndim == 0:
+        f = f[np.newaxis]
 
-        return gradgrad_out, None, None, None, None, None, None, None, None
+    # Separable?
+    if separable is None:
+        separable = (f.ndim == 1 and f.numel() >= 8)
+    if f.ndim == 1 and not separable:
+        f = f.ger(f)
+    assert f.ndim == (1 if separable else 2)
 
+    # Apply normalize, flip, gain, and device.
+    if normalize:
+        f /= f.sum()
+    if flip_filter:
+        f = f.flip(list(range(f.ndim)))
+    f = f * (gain ** (f.ndim / 2))
+    f = f.to(device=device)
+    return f
 
-class UpFirDn2d(Function):
-    @staticmethod
-    def forward(ctx, input, kernel, up, down, pad):
-        up_x, up_y = up
-        down_x, down_y = down
-        pad_x0, pad_x1, pad_y0, pad_y1 = pad
+#----------------------------------------------------------------------------
 
-        kernel_h, kernel_w = kernel.shape
-        batch, channel, in_h, in_w = input.shape
-        ctx.in_size = input.shape
+def upfirdn2d(x, f, up=1, down=1, padding=0, flip_filter=False, gain=1, impl='cuda'):
+    r"""Pad, upsample, filter, and downsample a batch of 2D images.
 
-        input = input.reshape(-1, in_h, in_w, 1)
+    Performs the following sequence of operations for each channel:
 
-        ctx.save_for_backward(kernel, torch.flip(kernel, [0, 1]))
+    1. Upsample the image by inserting N-1 zeros after each pixel (`up`).
 
-        out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h + down_y) // down_y
-        out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w + down_x) // down_x
-        ctx.out_size = (out_h, out_w)
+    2. Pad the image with the specified number of zeros on each side (`padding`).
+       Negative padding corresponds to cropping the image.
 
-        ctx.up = (up_x, up_y)
-        ctx.down = (down_x, down_y)
-        ctx.pad = (pad_x0, pad_x1, pad_y0, pad_y1)
+    3. Convolve the image with the specified 2D FIR filter (`f`), shrinking it
+       so that the footprint of all output pixels lies within the input image.
 
-        g_pad_x0 = kernel_w - pad_x0 - 1
-        g_pad_y0 = kernel_h - pad_y0 - 1
-        g_pad_x1 = in_w * up_x - out_w * down_x + pad_x0 - up_x + 1
-        g_pad_y1 = in_h * up_y - out_h * down_y + pad_y0 - up_y + 1
+    4. Downsample the image by keeping every Nth pixel (`down`).
 
-        ctx.g_pad = (g_pad_x0, g_pad_x1, g_pad_y0, g_pad_y1)
+    This sequence of operations bears close resemblance to scipy.signal.upfirdn().
+    The fused op is considerably more efficient than performing the same calculation
+    using standard PyTorch ops. It supports gradients of arbitrary order.
 
-        out = upfirdn2d_op.upfirdn2d(
-            input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
-        )
-        # out = out.view(major, out_h, out_w, minor)
-        out = out.view(-1, channel, out_h, out_w)
+    Args:
+        x:           Float32/float64/float16 input tensor of the shape
+                     `[batch_size, num_channels, in_height, in_width]`.
+        f:           Float32 FIR filter of the shape
+                     `[filter_height, filter_width]` (non-separable),
+                     `[filter_taps]` (separable), or
+                     `None` (identity).
+        up:          Integer upsampling factor. Can be a single int or a list/tuple
+                     `[x, y]` (default: 1).
+        down:        Integer downsampling factor. Can be a single int or a list/tuple
+                     `[x, y]` (default: 1).
+        padding:     Padding with respect to the upsampled image. Can be a single number
+                     or a list/tuple `[x, y]` or `[x_before, x_after, y_before, y_after]`
+                     (default: 0).
+        flip_filter: False = convolution, True = correlation (default: False).
+        gain:        Overall scaling factor for signal magnitude (default: 1).
+        impl:        Implementation to use. Can be `'ref'` or `'cuda'` (default: `'cuda'`).
 
-        return out
+    Returns:
+        Tensor of the shape `[batch_size, num_channels, out_height, out_width]`.
+    """
+    assert isinstance(x, torch.Tensor)
+    assert impl in ['ref', 'cuda']
+    if impl == 'cuda' and x.device.type == 'cuda' and _init():
+        return _upfirdn2d_cuda(up=up, down=down, padding=padding, flip_filter=flip_filter, gain=gain).apply(x, f)
+    return _upfirdn2d_ref(x, f, up=up, down=down, padding=padding, flip_filter=flip_filter, gain=gain)
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        kernel, grad_kernel = ctx.saved_tensors
+#----------------------------------------------------------------------------
 
-        grad_input = None
+@misc.profiled_function
+def _upfirdn2d_ref(x, f, up=1, down=1, padding=0, flip_filter=False, gain=1):
+    """Slow reference implementation of `upfirdn2d()` using standard PyTorch ops.
+    """
+    # Validate arguments.
+    assert isinstance(x, torch.Tensor) and x.ndim == 4
+    if f is None:
+        f = torch.ones([1, 1], dtype=torch.float32, device=x.device)
+    assert isinstance(f, torch.Tensor) and f.ndim in [1, 2]
+    assert f.dtype == torch.float32 and not f.requires_grad
+    batch_size, num_channels, in_height, in_width = x.shape
+    upx, upy = _parse_scaling(up)
+    downx, downy = _parse_scaling(down)
+    padx0, padx1, pady0, pady1 = _parse_padding(padding)
 
-        if ctx.needs_input_grad[0]:
-            grad_input = UpFirDn2dBackward.apply(
-                grad_output,
-                kernel,
-                grad_kernel,
-                ctx.up,
-                ctx.down,
-                ctx.pad,
-                ctx.g_pad,
-                ctx.in_size,
-                ctx.out_size,
-            )
+    # Check that upsampled buffer is not smaller than the filter.
+    upW = in_width * upx + padx0 + padx1
+    upH = in_height * upy + pady0 + pady1
+    assert upW >= f.shape[-1] and upH >= f.shape[0]
 
-        return grad_input, None, None, None, None
+    # Upsample by inserting zeros.
+    x = x.reshape([batch_size, num_channels, in_height, 1, in_width, 1])
+    x = torch.nn.functional.pad(x, [0, upx - 1, 0, 0, 0, upy - 1])
+    x = x.reshape([batch_size, num_channels, in_height * upy, in_width * upx])
 
+    # Pad or crop.
+    x = torch.nn.functional.pad(x, [max(padx0, 0), max(padx1, 0), max(pady0, 0), max(pady1, 0)])
+    x = x[:, :, max(-pady0, 0) : x.shape[2] - max(-pady1, 0), max(-padx0, 0) : x.shape[3] - max(-padx1, 0)]
 
-def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
-    if not isinstance(up, abc.Iterable):
-        up = (up, up)
+    # Setup filter.
+    f = f * (gain ** (f.ndim / 2))
+    f = f.to(x.dtype)
+    if not flip_filter:
+        f = f.flip(list(range(f.ndim)))
 
-    if not isinstance(down, abc.Iterable):
-        down = (down, down)
-
-    if len(pad) == 2:
-        pad = (pad[0], pad[1], pad[0], pad[1])
-
-    if input.device.type == "cpu":
-        out = upfirdn2d_native(input, kernel, *up, *down, *pad)
-
+    # Convolve with the filter.
+    f = f[np.newaxis, np.newaxis].repeat([num_channels, 1] + [1] * f.ndim)
+    if f.ndim == 4:
+        x = conv2d_gradfix.conv2d(input=x, weight=f, groups=num_channels)
     else:
-        out = UpFirDn2d.apply(input, kernel, up, down, pad)
+        x = conv2d_gradfix.conv2d(input=x, weight=f.unsqueeze(2), groups=num_channels)
+        x = conv2d_gradfix.conv2d(input=x, weight=f.unsqueeze(3), groups=num_channels)
 
-    return out
+    # Downsample by throwing away pixels.
+    x = x[:, :, ::downy, ::downx]
+    return x
 
+#----------------------------------------------------------------------------
 
-def upfirdn2d_native(
-    input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
-):
-    _, channel, in_h, in_w = input.shape
-    input = input.reshape(-1, in_h, in_w, 1)
+_upfirdn2d_cuda_cache = dict()
 
-    _, in_h, in_w, minor = input.shape
-    kernel_h, kernel_w = kernel.shape
+def _upfirdn2d_cuda(up=1, down=1, padding=0, flip_filter=False, gain=1):
+    """Fast CUDA implementation of `upfirdn2d()` using custom ops.
+    """
+    # Parse arguments.
+    upx, upy = _parse_scaling(up)
+    downx, downy = _parse_scaling(down)
+    padx0, padx1, pady0, pady1 = _parse_padding(padding)
 
-    out = input.view(-1, in_h, 1, in_w, 1, minor)
-    out = F.pad(out, [0, 0, 0, up_x - 1, 0, 0, 0, up_y - 1])
-    out = out.view(-1, in_h * up_y, in_w * up_x, minor)
+    # Lookup from cache.
+    key = (upx, upy, downx, downy, padx0, padx1, pady0, pady1, flip_filter, gain)
+    if key in _upfirdn2d_cuda_cache:
+        return _upfirdn2d_cuda_cache[key]
 
-    out = F.pad(
-        out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
-    )
-    out = out[
-        :,
-        max(-pad_y0, 0) : out.shape[1] - max(-pad_y1, 0),
-        max(-pad_x0, 0) : out.shape[2] - max(-pad_x1, 0),
-        :,
+    # Forward op.
+    class Upfirdn2dCuda(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, x, f): # pylint: disable=arguments-differ
+            assert isinstance(x, torch.Tensor) and x.ndim == 4
+            if f is None:
+                f = torch.ones([1, 1], dtype=torch.float32, device=x.device)
+            if f.ndim == 1 and f.shape[0] == 1:
+                f = f.square().unsqueeze(0) # Convert separable-1 into full-1x1.
+            assert isinstance(f, torch.Tensor) and f.ndim in [1, 2]
+            y = x
+            if f.ndim == 2:
+                y = _plugin.upfirdn2d(y, f, upx, upy, downx, downy, padx0, padx1, pady0, pady1, flip_filter, gain)
+            else:
+                y = _plugin.upfirdn2d(y, f.unsqueeze(0), upx, 1, downx, 1, padx0, padx1, 0, 0, flip_filter, 1.0)
+                y = _plugin.upfirdn2d(y, f.unsqueeze(1), 1, upy, 1, downy, 0, 0, pady0, pady1, flip_filter, gain)
+            ctx.save_for_backward(f)
+            ctx.x_shape = x.shape
+            return y
+
+        @staticmethod
+        def backward(ctx, dy): # pylint: disable=arguments-differ
+            f, = ctx.saved_tensors
+            _, _, ih, iw = ctx.x_shape
+            _, _, oh, ow = dy.shape
+            fw, fh = _get_filter_size(f)
+            p = [
+                fw - padx0 - 1,
+                iw * upx - ow * downx + padx0 - upx + 1,
+                fh - pady0 - 1,
+                ih * upy - oh * downy + pady0 - upy + 1,
+            ]
+            dx = None
+            df = None
+
+            if ctx.needs_input_grad[0]:
+                dx = _upfirdn2d_cuda(up=down, down=up, padding=p, flip_filter=(not flip_filter), gain=gain).apply(dy, f)
+
+            assert not ctx.needs_input_grad[1]
+            return dx, df
+
+    # Add to cache.
+    _upfirdn2d_cuda_cache[key] = Upfirdn2dCuda
+    return Upfirdn2dCuda
+
+#----------------------------------------------------------------------------
+
+def filter2d(x, f, padding=0, flip_filter=False, gain=1, impl='cuda'):
+    r"""Filter a batch of 2D images using the given 2D FIR filter.
+
+    By default, the result is padded so that its shape matches the input.
+    User-specified padding is applied on top of that, with negative values
+    indicating cropping. Pixels outside the image are assumed to be zero.
+
+    Args:
+        x:           Float32/float64/float16 input tensor of the shape
+                     `[batch_size, num_channels, in_height, in_width]`.
+        f:           Float32 FIR filter of the shape
+                     `[filter_height, filter_width]` (non-separable),
+                     `[filter_taps]` (separable), or
+                     `None` (identity).
+        padding:     Padding with respect to the output. Can be a single number or a
+                     list/tuple `[x, y]` or `[x_before, x_after, y_before, y_after]`
+                     (default: 0).
+        flip_filter: False = convolution, True = correlation (default: False).
+        gain:        Overall scaling factor for signal magnitude (default: 1).
+        impl:        Implementation to use. Can be `'ref'` or `'cuda'` (default: `'cuda'`).
+
+    Returns:
+        Tensor of the shape `[batch_size, num_channels, out_height, out_width]`.
+    """
+    padx0, padx1, pady0, pady1 = _parse_padding(padding)
+    fw, fh = _get_filter_size(f)
+    p = [
+        padx0 + fw // 2,
+        padx1 + (fw - 1) // 2,
+        pady0 + fh // 2,
+        pady1 + (fh - 1) // 2,
     ]
+    return upfirdn2d(x, f, padding=p, flip_filter=flip_filter, gain=gain, impl=impl)
 
-    out = out.permute(0, 3, 1, 2)
-    out = out.reshape(
-        [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1]
-    )
-    w = torch.flip(kernel, [0, 1]).view(1, 1, kernel_h, kernel_w)
-    out = F.conv2d(out, w)
-    out = out.reshape(
-        -1,
-        minor,
-        in_h * up_y + pad_y0 + pad_y1 - kernel_h + 1,
-        in_w * up_x + pad_x0 + pad_x1 - kernel_w + 1,
-    )
-    out = out.permute(0, 2, 3, 1)
-    out = out[:, ::down_y, ::down_x, :]
+#----------------------------------------------------------------------------
 
-    out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h + down_y) // down_y
-    out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w + down_x) // down_x
+def upsample2d(x, f, up=2, padding=0, flip_filter=False, gain=1, impl='cuda'):
+    r"""Upsample a batch of 2D images using the given 2D FIR filter.
 
-    return out.view(-1, channel, out_h, out_w)
+    By default, the result is padded so that its shape is a multiple of the input.
+    User-specified padding is applied on top of that, with negative values
+    indicating cropping. Pixels outside the image are assumed to be zero.
+
+    Args:
+        x:           Float32/float64/float16 input tensor of the shape
+                     `[batch_size, num_channels, in_height, in_width]`.
+        f:           Float32 FIR filter of the shape
+                     `[filter_height, filter_width]` (non-separable),
+                     `[filter_taps]` (separable), or
+                     `None` (identity).
+        up:          Integer upsampling factor. Can be a single int or a list/tuple
+                     `[x, y]` (default: 1).
+        padding:     Padding with respect to the output. Can be a single number or a
+                     list/tuple `[x, y]` or `[x_before, x_after, y_before, y_after]`
+                     (default: 0).
+        flip_filter: False = convolution, True = correlation (default: False).
+        gain:        Overall scaling factor for signal magnitude (default: 1).
+        impl:        Implementation to use. Can be `'ref'` or `'cuda'` (default: `'cuda'`).
+
+    Returns:
+        Tensor of the shape `[batch_size, num_channels, out_height, out_width]`.
+    """
+    upx, upy = _parse_scaling(up)
+    padx0, padx1, pady0, pady1 = _parse_padding(padding)
+    fw, fh = _get_filter_size(f)
+    p = [
+        padx0 + (fw + upx - 1) // 2,
+        padx1 + (fw - upx) // 2,
+        pady0 + (fh + upy - 1) // 2,
+        pady1 + (fh - upy) // 2,
+    ]
+    return upfirdn2d(x, f, up=up, padding=p, flip_filter=flip_filter, gain=gain*upx*upy, impl=impl)
+
+#----------------------------------------------------------------------------
+
+def downsample2d(x, f, down=2, padding=0, flip_filter=False, gain=1, impl='cuda'):
+    r"""Downsample a batch of 2D images using the given 2D FIR filter.
+
+    By default, the result is padded so that its shape is a fraction of the input.
+    User-specified padding is applied on top of that, with negative values
+    indicating cropping. Pixels outside the image are assumed to be zero.
+
+    Args:
+        x:           Float32/float64/float16 input tensor of the shape
+                     `[batch_size, num_channels, in_height, in_width]`.
+        f:           Float32 FIR filter of the shape
+                     `[filter_height, filter_width]` (non-separable),
+                     `[filter_taps]` (separable), or
+                     `None` (identity).
+        down:        Integer downsampling factor. Can be a single int or a list/tuple
+                     `[x, y]` (default: 1).
+        padding:     Padding with respect to the input. Can be a single number or a
+                     list/tuple `[x, y]` or `[x_before, x_after, y_before, y_after]`
+                     (default: 0).
+        flip_filter: False = convolution, True = correlation (default: False).
+        gain:        Overall scaling factor for signal magnitude (default: 1).
+        impl:        Implementation to use. Can be `'ref'` or `'cuda'` (default: `'cuda'`).
+
+    Returns:
+        Tensor of the shape `[batch_size, num_channels, out_height, out_width]`.
+    """
+    downx, downy = _parse_scaling(down)
+    padx0, padx1, pady0, pady1 = _parse_padding(padding)
+    fw, fh = _get_filter_size(f)
+    p = [
+        padx0 + (fw - downx + 1) // 2,
+        padx1 + (fw - downx) // 2,
+        pady0 + (fh - downy + 1) // 2,
+        pady1 + (fh - downy) // 2,
+    ]
+    return upfirdn2d(x, f, down=down, padding=p, flip_filter=flip_filter, gain=gain, impl=impl)
+
+#----------------------------------------------------------------------------

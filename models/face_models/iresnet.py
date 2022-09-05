@@ -58,16 +58,17 @@ class IBasicBlock(nn.Module):
         return out        
 
     def forward(self, x):
-        if self.training and using_ckpt:
-            return checkpoint(self.forard_imlp, x)
-        else:
-            return self.forard_impl(x)
+        return self.forard_impl(x)
+        # if self.training and using_ckpt:
+        #     return checkpoint(self.forard_imlp, x)
+        # else:
+        #     return self.forard_impl(x)
 
 
 class IResNet(nn.Module):
     fc_scale = 7 * 7
     def __init__(self,
-                 block, layers, dropout=0, num_features=512, zero_init_residual=False,
+                 block, layers, dropout=0.0, num_features=512, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None, fp16=False):
         super(IResNet, self).__init__()
         self.extra_gflops = 0.0

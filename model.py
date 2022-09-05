@@ -42,13 +42,15 @@ class Zface(pl.LightningModule):
 
 
         self.G = HififaceGenerator(activation=cfg["activation"])
-        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_small_distilled_patch16_224',
+        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
                                                                     'tf_efficientnet_lite0'])    
                                                                         
 
+        self.blur_init_sigma = 2
+        self.blur_fade_kimg = 100
 
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
+        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -105,14 +107,15 @@ class Zface(pl.LightningModule):
         opt_g, opt_d = self.optimizers(use_pl_optimizer=True)
         I_source ,I_target,mask_target, same_person = batch
 
-        # mask_target = self.get_mask(I_target)
-
         if self.src_img == None:
             self.src_img = I_source[:3]
             self.dst_img = I_target[:3]
             self.dst_msk = mask_target[:3]
             
         self.process_cmd()
+
+        blur_sigma = max(1 - self.global_step / (self.blur_fade_kimg * 1e3), 0) * self.blur_init_sigma if self.blur_fade_kimg > 1 else 0
+
         I_swapped_high,I_swapped_low,c_fuse,id_source = self.G(I_source, I_target,mask_target)
         I_cycle = self.G(I_source,I_swapped_high,mask_target)[0]
         # Arcface 
@@ -131,7 +134,7 @@ class Zface(pl.LightningModule):
 
 
         # adversarial
-        d_adv = self.D(I_swapped_high)
+        d_adv = self.D(I_swapped_high,blur_sigma = blur_sigma)
 
         G_dict = {
             "I_source": I_source,
@@ -161,8 +164,8 @@ class Zface(pl.LightningModule):
         # train D #
         ###########
         I_target.requires_grad_()
-        d_true = self.D(I_target)
-        d_fake = self.D(I_swapped_high.detach())
+        d_true = self.D(I_target,blur_sigma = blur_sigma)
+        d_fake = self.D(I_swapped_high.detach(),blur_sigma = blur_sigma)
 
         D_dict = {
             "d_true": d_true,
