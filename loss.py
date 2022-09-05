@@ -91,6 +91,7 @@ class HifiFaceLoss(LossInterface):
     
     def get_loss_D(self, D_dict):
         L_D = sum([dual_contrastive_loss(real,fake) for real,fake in zip(D_dict["d_true"],D_dict["d_fake"])])
+        self.loss_dict["L_D"] = round(L_D.item(), 4)
         return L_D    
 
     # def get_loss_D(self, D_dict):

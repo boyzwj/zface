@@ -178,6 +178,7 @@ class Zface(pl.LightningModule):
         opt_d.zero_grad()
         self.manual_backward(d_loss)
         opt_d.step()
+        self.log_dict(self.loss.loss_dict)
         # endregion
 
         # region logging
