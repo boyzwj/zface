@@ -63,14 +63,14 @@ class HifiFaceLoss(LossInterface):
         #     self.loss_dict["L_seg"] = round(L_seg.item(), 4)
         # Reconstruction loss
         if self.W_recon:
-            L_recon = Loss.get_L1_loss_with_same_person(G_dict["I_swapped_high"], G_dict["I_target"], G_dict["same_person"], self.batch_size)
-            L_recon += Loss.get_L1_loss_with_same_person(G_dict["I_swapped_low"],F.interpolate(G_dict["I_target"], scale_factor=0.25, mode='bilinear'), G_dict["same_person"], self.batch_size)
+            L_recon = Loss.get_ffl_with_same_person(G_dict["I_swapped_high"], G_dict["I_target"], G_dict["same_person"], self.batch_size)
+            L_recon += Loss.get_ffl_with_same_person(G_dict["I_swapped_low"],F.interpolate(G_dict["I_target"], scale_factor=0.25, mode='bilinear'), G_dict["same_person"], self.batch_size)
             L_G += self.W_recon * L_recon
             self.loss_dict["L_recon"] = round(L_recon.item(), 4)              
 
         # Cycle loss
         if self.W_cycle:
-            L_cycle = Loss.get_L1_loss(G_dict["I_cycle"], G_dict["I_swapped_high"])
+            L_cycle = Loss.get_ffl_with_same_person(G_dict["I_cycle"], G_dict["I_swapped_high"])
             L_G += self.W_cycle * L_cycle
             self.loss_dict["L_cycle"] = round(L_cycle.item(), 4)
 
