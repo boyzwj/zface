@@ -20,7 +20,7 @@ class HifiFaceLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
         self.W_adv = 0.125
-        self.W_id = 1
+        self.W_id = 5
         self.W_seg = 100
         self.W_recon = 20
         self.W_cycle = 1
@@ -35,7 +35,7 @@ class HifiFaceLoss(LossInterface):
         # Adversarial loss
         if self.W_adv:
             # L_adv = Loss.get_BCE_loss(G_dict["d_adv"], True)
-            L_adv = sum([(-l).mean() for l in G_dict["d_adv"]])
+            L_adv = sum([dual_contrastive_loss(fake,real) for fake,real in zip(G_dict["d_fake"],G_dict["d_real"])])
             L_G += self.W_adv * L_adv
             self.loss_dict["L_adv"] = round(L_adv.item(), 4)
           
@@ -91,6 +91,7 @@ class HifiFaceLoss(LossInterface):
     
     def get_loss_D(self, D_dict):
         L_D = sum([dual_contrastive_loss(real,fake) for real,fake in zip(D_dict["d_true"],D_dict["d_fake"])])
+        self.loss_dict["L_D"] = round(L_D.item(), 4)
         return L_D    
 
     # def get_loss_D(self, D_dict):

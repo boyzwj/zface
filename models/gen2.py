@@ -17,6 +17,8 @@ from models.cbam import CBAM
 from models.ca import CoordAtt,ECA
 from einops import rearrange, repeat
 from inplace_abn import InPlaceABN
+from torch.nn.utils import spectral_norm
+
 
 mean = torch.tensor([0.485, 0.456, 0.406])
 std = torch.tensor([0.229, 0.224, 0.225])
@@ -123,62 +125,7 @@ attn_and_ff = lambda chan: nn.Sequential(*[
     Residual(PreNorm(chan, nn.Sequential(nn.Conv2d(chan, chan * 2, 1), nn.Mish(inplace=True), nn.Conv2d(chan * 2, chan, 1))))
 ])
 
-
-
-
-
-class AdaIn(nn.Module):
-    def __init__(self, style_dim, num_features):
-        super().__init__()
-        self.norm = nn.InstanceNorm2d(num_features, affine=False)
-        self.fc = nn.Linear(style_dim, num_features*2)
-
-    def forward(self, x, s):
-        h = self.fc(s)
-        h = h.view(h.size(0), h.size(1), 1, 1)
-        gamma, beta = torch.chunk(h, chunks=2, dim=1)
-        return (1 + gamma) * self.norm(x) + beta
     
-    
-    
-class AdaInResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, up_sample=False, style_dim=662,activation='lrelu'):
-        super(AdaInResBlock, self).__init__()
-        self.ada_in1 = AdaIn(style_dim,in_channel)
-        self.ada_in2 = AdaIn(style_dim,out_channel)
-
-        main_module_list = []
-        main_module_list += [
-            set_activate_layer(activation),
-            nn.Conv2d(in_channel, out_channel,3,1,1),
-        ]
-        if up_sample:
-            main_module_list.append(nn.Upsample(scale_factor=2, mode="bilinear"))
-        self.main_path1 = nn.Sequential(*main_module_list)
-
-        self.main_path2 = nn.Sequential(
-            set_activate_layer(activation),
-            nn.Conv2d(out_channel, out_channel,3,1,1),
-        )
-        side_module_list = []
-        if in_channel != out_channel:
-            side_module_list += [nn.Conv2d(in_channel, out_channel, 1, 1, padding=0, bias=False)]
-        else:
-            side_module_list += [nn.Identity()]   
-        if up_sample:
-            side_module_list.append(nn.Upsample(scale_factor=2, mode="bilinear"))
-        self.side_path = nn.Sequential(*side_module_list)
-
-
-    def forward(self, x, id_vector):
-        x1 = self.ada_in1(x, id_vector)
-        x1 = self.main_path1(x1)
-        x1 = self.ada_in2(x1, id_vector)
-        x1 = self.main_path2(x1)
-        x2 = self.side_path(x)
-        return (x1 + x2) / math.sqrt(2)
-        
-        
 
 class GenResBlk(nn.Module):
     def __init__(self, dim_in, dim_out, style_dim=662, 
@@ -403,13 +350,13 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=662, activation='lrelu'):
         super(Decoder, self).__init__()
-        self.d0 = GenResBlk(768, 512, up_sample=False, style_dim=style_dim,activation=activation) #8
-        self.d1 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation) #8
-        self.d2 = GenResBlk(512, 384, up_sample=True, style_dim=style_dim,activation=activation)  #16
-        self.d3 = GenResBlk(384, 384, up_sample=False, style_dim=style_dim,activation=activation) #16
-        self.d4 = GenResBlk(384, 256, up_sample=True, style_dim=style_dim,activation=activation)  #32
-        self.d5 = GenResBlk(256, 256, up_sample=False, style_dim=style_dim,activation=activation)  #32
-        self.d6 = GenResBlk(256, 256,  up_sample=True, style_dim=style_dim,activation=activation)   #64
+        self.d0 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation) #8
+        self.d1 = GenResBlk(768, 512, up_sample=True, style_dim=style_dim,activation=activation) #8
+        self.d2 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)  #16
+        self.d3 = GenResBlk(512, 384, up_sample=True, style_dim=style_dim,activation=activation) #16
+        self.d4 = GenResBlk(384, 384, up_sample=False, style_dim=style_dim,activation=activation)  #32
+        self.d5 = GenResBlk(384, 256, up_sample=True, style_dim=style_dim,activation=activation)  #32
+        self.d6 = GenResBlk(256, 256,  up_sample=False, style_dim=style_dim,activation=activation)   #64
         self.apply(weight_init)
 
     def forward(self, x, s):

@@ -9,6 +9,8 @@ from torch_utils.ops import upfirdn2d
 from torchvision.transforms import Normalize
 from models.constants import VITS
 from inplace_abn import InPlaceABN
+from functools import partial
+
 def conv2d(*args, **kwargs):
     return spectral_norm(nn.Conv2d(*args, **kwargs))
 
@@ -25,8 +27,9 @@ class DownBlock(nn.Module):
     def __init__(self, in_planes, out_planes, width=1):
         super().__init__()
         self.main = nn.Sequential(
-            conv2d(in_planes, out_planes*width, 4, 2, 1, bias=False),
-            InPlaceABN(out_planes*width)
+            conv2d(in_planes, out_planes*width, 4, 2, 1),
+            nn.Mish(inplace=True)
+            # InPlaceABN(out_planes*width)
             # NormLayer(out_planes*width),
             # nn.Mish(inplace=True)
         )
@@ -40,8 +43,8 @@ class DownBlockPatch(nn.Module):
         super().__init__()
         self.main = nn.Sequential(
             DownBlock(in_planes, out_planes),
-            conv2d(out_planes, out_planes, 1, 1, 0, bias=False),
-            InPlaceABN(out_planes)
+            conv2d(out_planes, out_planes, 1, 1, 0),
+            nn.Mish(inplace=True)
             # NormLayer(out_planes),
             # nn.Mish(inplace=True)
         )

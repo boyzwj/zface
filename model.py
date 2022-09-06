@@ -47,10 +47,10 @@ class Zface(pl.LightningModule):
                                                                         
 
         self.blur_init_sigma = 2
-        self.blur_fade_kimg = 100
+        self.blur_fade_kimg = 200
 
-        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
-        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
+        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -134,7 +134,8 @@ class Zface(pl.LightningModule):
 
 
         # adversarial
-        d_adv = self.D(I_swapped_high,blur_sigma = blur_sigma)
+        fake_output = self.D(I_swapped_high,blur_sigma = blur_sigma)
+        real_output = self.D(I_target,blur_sigma = blur_sigma)
 
         G_dict = {
             "I_source": I_source,
@@ -152,7 +153,9 @@ class Zface(pl.LightningModule):
             "q_swapped_high": q_swapped_high,
             "q_swapped_low": q_swapped_low,
             "q_fuse": q_fuse,
-            "d_adv": d_adv
+            "d_fake": fake_output,
+            "d_real": real_output
+            
         }
         g_loss = self.loss.get_loss_G(G_dict)
         opt_g.zero_grad()
@@ -178,6 +181,7 @@ class Zface(pl.LightningModule):
         opt_d.zero_grad()
         self.manual_backward(d_loss)
         opt_d.step()
+        self.log_dict(self.loss.loss_dict)
         # endregion
 
         # region logging
@@ -204,7 +208,7 @@ class Zface(pl.LightningModule):
         # dataset = HifiFaceDataset2(["../../Customface","../../facefuck"])
         # dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ","../../CelebA-HQ"])
         # dataset = MultiResolutionDataset("../../ffhq/",resolution=self.size)
-        dataset = Ds("./data/test",resolution=self.size)
+        dataset = Ds("../../test",resolution=self.size)
         num_workers = 4
         persistent_workers = True
         # if(platform.system()=='Windows'):
