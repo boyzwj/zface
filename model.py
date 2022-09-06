@@ -15,8 +15,7 @@ from models.discriminator import ProjectedDiscriminator
 from torch import nn
 from dataset import *
 from loss import *
-from torchvision.transforms.functional import InterpolationMode
-
+from models.gradnorm import normalize_gradient
 
 mean = torch.tensor([0.485, 0.456, 0.406])
 std = torch.tensor([0.229, 0.224, 0.225])
@@ -134,8 +133,11 @@ class Zface(pl.LightningModule):
 
 
         # adversarial
-        fake_output = self.D(I_swapped_high,blur_sigma = blur_sigma)
-        real_output = self.D(I_target,blur_sigma = blur_sigma)
+        # fake_output = self.D(I_swapped_high,blur_sigma = blur_sigma)
+        # real_output = self.D(I_target,blur_sigma = blur_sigma)
+
+        fake_output = normalize_gradient(self.D,I_swapped_high,blur_sigma = blur_sigma)
+        real_output = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
 
         G_dict = {
             "I_source": I_source,
@@ -167,9 +169,12 @@ class Zface(pl.LightningModule):
         # train D #
         ###########
         I_target.requires_grad_()
-        d_true = self.D(I_target,blur_sigma = blur_sigma)
-        d_fake = self.D(I_swapped_high.detach(),blur_sigma = blur_sigma)
+        # d_true = self.D(I_target,blur_sigma = blur_sigma)
+        # d_fake = self.D(I_swapped_high.detach(),blur_sigma = blur_sigma)
 
+        d_true = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
+        d_fake = normalize_gradient(self.D,I_swapped_high.detach(),blur_sigma = blur_sigma)
+   
         D_dict = {
             "d_true": d_true,
             "d_fake": d_fake,
