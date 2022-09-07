@@ -236,17 +236,8 @@ class Ds(Dataset):
     def __len__(self):
         return self.length
 
-    def get_src_img_data(self,id):
-        if not hasattr(self, 'txn'):
-            self.open_lmdb()
-        with self.env.begin(write=False) as txn:
-            img_key = f"img-{str(id).zfill(7)}".encode("utf-8")
-            img_bytes = txn.get(img_key)
-        buffer = BytesIO(img_bytes)
-        img = Image.open(buffer)
-        return img 
 
-    def get_dst_img_data(self,id):
+    def get_img_data(self,id):
         if not hasattr(self, 'txn'):
             self.open_lmdb()
         with self.env.begin(write=False) as txn:
@@ -286,13 +277,14 @@ class Ds(Dataset):
             same_person = 1
         else:
             same_person = 0 
-        src_img =  self.get_src_img_data(src_id)
-        dst_img, dst_msk =  self.get_dst_img_data(dst_id)
+        src_img, src_msk =  self.get_img_data(src_id)
+        dst_img, dst_msk =  self.get_img_data(dst_id)
 
         src_img = self.transform(src_img)
+        src_msk = self.msk_trans(src_msk)
         dst_img = self.transform(dst_img)
         dst_msk = self.msk_trans(dst_msk)
-        return src_img, dst_img,dst_msk,same_person     
+        return src_img,src_msk, dst_img,dst_msk,same_person     
 
 class MultiResolutionDataset(Dataset):
     def __init__(self, path, resolution=256, same_prob=0.5):

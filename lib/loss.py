@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 import time
 from focal_frequency_loss import FocalFrequencyLoss as FFL
+import torch.nn as nn
 
 class LossInterface(metaclass=abc.ABCMeta):
     """
@@ -50,7 +51,16 @@ class LossInterface(metaclass=abc.ABCMeta):
         """
         pass
 
-
+class FocalFreqL1Loss(nn.Module):
+    def __init__(self):
+        super(FocalFreqL1Loss, self).__init__()
+        self.focal_freq_loss= FFL(loss_weight=1.0, alpha=1.0, patch_factor=1, ave_spectrum=False, log_matrix=False, batch_matrix=False)
+        self.recon_loss= torch.nn.SmoothL1Loss()
+    
+    def forward(self, pred, target):
+        return self.focal_freq_loss(pred, target) + self.recon_loss(pred, target)
+    
+    
 class Loss:
     """
     Provide various losses such as LPIPS, L1, L2, BCE and so on.
@@ -58,7 +68,7 @@ class Loss:
     
     L1 = torch.nn.SmoothL1Loss().to("cuda")
     L2 = torch.nn.MSELoss().to("cuda")
-    L3 = FFL(loss_weight=1.0, alpha=1.0).to("cuda")
+    L3 = FocalFreqL1Loss().to("cuda")
 
     def get_id_loss(a, b):
         return (1 - torch.cosine_similarity(a, b, dim=1)).mean()
@@ -78,7 +88,7 @@ class Loss:
     
     @classmethod
     def get_ffl_with_same_person(cls,a, b, same_person, batch_per_gpu):
-        return torch.sum(torch.mean(cls.L3(a,b).reshape(batch_per_gpu, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)
+        return torch.sum(torch.mean(cls.L3(a, b).reshape(batch_per_gpu, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)     
 
 
     @classmethod
@@ -88,6 +98,10 @@ class Loss:
     @classmethod
     def get_L2_loss(cls, a, b):
         return cls.L2(a, b)
+    
+    @classmethod
+    def get_L3_loss(cls, a, b):
+        return cls.L3(a, b)
 
     def get_L1_loss_with_same_person(a, b, same_person, batch_per_gpu):
         return torch.sum(torch.mean(torch.abs(a - b).reshape(batch_per_gpu, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)

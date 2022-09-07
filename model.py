@@ -104,7 +104,7 @@ class Zface(pl.LightningModule):
             
     def training_step(self, batch, batch_idx):
         opt_g, opt_d = self.optimizers(use_pl_optimizer=True)
-        I_source ,I_target,mask_target, same_person = batch
+        I_source,mask_source,I_target,mask_target, same_person = batch
 
         if self.src_img == None:
             self.src_img = I_source[:3]
@@ -116,7 +116,7 @@ class Zface(pl.LightningModule):
         blur_sigma = max(1 - self.global_step / (self.blur_fade_kimg * 1e3), 0) * self.blur_init_sigma if self.blur_fade_kimg > 1 else 0
 
         I_swapped_high,I_swapped_low,c_fuse,id_source = self.G(I_source, I_target,mask_target)
-        I_cycle = self.G(I_source,I_swapped_high,mask_target)[0]
+        I_cycle = self.G(I_swapped_high,I_source,mask_source)[0]
         # Arcface 
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
         id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
@@ -133,11 +133,11 @@ class Zface(pl.LightningModule):
 
 
         # adversarial
-        # fake_output = self.D(I_swapped_high,blur_sigma = blur_sigma)
-        # real_output = self.D(I_target,blur_sigma = blur_sigma)
+        fake_output = self.D(I_swapped_high,blur_sigma = blur_sigma)
+        real_output = self.D(I_target,blur_sigma = blur_sigma)
 
-        fake_output = normalize_gradient(self.D,I_swapped_high,blur_sigma = blur_sigma)
-        real_output = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
+        # fake_output = normalize_gradient(self.D,I_swapped_high,blur_sigma = blur_sigma)
+        # real_output = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
 
         G_dict = {
             "I_source": I_source,
@@ -169,11 +169,11 @@ class Zface(pl.LightningModule):
         # train D #
         ###########
         I_target.requires_grad_()
-        # d_true = self.D(I_target,blur_sigma = blur_sigma)
-        # d_fake = self.D(I_swapped_high.detach(),blur_sigma = blur_sigma)
+        d_true = self.D(I_target,blur_sigma = blur_sigma)
+        d_fake = self.D(I_swapped_high.detach(),blur_sigma = blur_sigma)
 
-        d_true = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
-        d_fake = normalize_gradient(self.D,I_swapped_high.detach(),blur_sigma = blur_sigma)
+        # d_true = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
+        # d_fake = normalize_gradient(self.D,I_swapped_high.detach(),blur_sigma = blur_sigma)
    
         D_dict = {
             "d_true": d_true,
