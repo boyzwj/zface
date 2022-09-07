@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 import time
 from focal_frequency_loss import FocalFrequencyLoss as FFL
+from pytorch_msssim import MS_SSIM
 import torch.nn as nn
 
 class LossInterface(metaclass=abc.ABCMeta):
@@ -69,7 +70,8 @@ class Loss:
     L1 = torch.nn.SmoothL1Loss().to("cuda")
     L2 = torch.nn.MSELoss().to("cuda")
     L3 = FocalFreqL1Loss().to("cuda")
-
+    ssim_loss = MS_SSIM(win_size=11, win_sigma=1.5, data_range=1, size_average=True)
+    
     def get_id_loss(a, b):
         return (1 - torch.cosine_similarity(a, b, dim=1)).mean()
 
@@ -102,6 +104,17 @@ class Loss:
     @classmethod
     def get_L3_loss(cls, a, b):
         return cls.L3(a, b)
+    
+    @classmethod
+    def get_mssim_loss(cls, a, b):   
+        a = (a + 1) / 2
+        b = (b + 1) / 2
+        loss = 1 - cls.ssim_loss(a,b)
+        return loss
+    
+    @classmethod
+    def get_mssim_loss_with_same_person(cls, a, b , same_person, batch_per_gpu):
+        return torch.sum(torch.mean(cls.get_mssim_loss(a, b).reshape(batch_per_gpu, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)
 
     def get_L1_loss_with_same_person(a, b, same_person, batch_per_gpu):
         return torch.sum(torch.mean(torch.abs(a - b).reshape(batch_per_gpu, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)

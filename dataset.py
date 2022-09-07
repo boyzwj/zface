@@ -16,6 +16,7 @@ import PIL
 from PIL import Image, ImageFile,ImageOps
 import imgaug as ia
 import imgaug.augmenters as iaa
+import torchvision.transforms.functional as TF
 PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
@@ -215,7 +216,8 @@ class Ds(Dataset):
         if not env:
             raise IOError('Cannot open lmdb dataset', self.path)
         with env.begin(write=False) as txn:
-            self.length = int(txn.get('id-length'.encode('utf-8')).decode('utf-8'))
+            self.seed = int(txn.get('id-length'.encode('utf-8')).decode('utf-8'))
+            self.length = self.seed * 2
             print(f"begin load  data {self.length}")
         env.close()
 
@@ -237,7 +239,7 @@ class Ds(Dataset):
         return self.length
 
 
-    def get_img_data(self,id):
+    def get_img_data(self,id, mirror = False):
         if not hasattr(self, 'txn'):
             self.open_lmdb()
         with self.env.begin(write=False) as txn:
@@ -246,13 +248,16 @@ class Ds(Dataset):
             img_bytes = txn.get(img_key)
             msk_bytes  = txn.get(msk_key)
 
-
         img_buffer = BytesIO(img_bytes)
         img = Image.open(img_buffer)
         msk_buffer = BytesIO(msk_bytes)
         msk = Image.open(msk_buffer)
-
-        return img, msk         
+        img = self.transform(img)
+        msk = self.msk_trans(msk)
+        if mirror:
+            img = TF.hflip(img)
+            msk = TF.hflip(msk)
+        return img, msk
 
     def get_id_in_range(self,idx):
         if not hasattr(self, 'txn'):
@@ -266,25 +271,30 @@ class Ds(Dataset):
 
 
     def __getitem__(self, idx):
+        mirror = False
+        if idx >= self.seed:
+            idx = idx % self.seed
+            mirror = True
         src_id  = self.get_id_in_range(idx)
-        l = self.__len__()
         if random.random() > self.same_prob:
-            t_idx = random.randrange(l)
+            t_idx = random.randrange(self.seed)
         else:
             t_idx = idx
         dst_id = self.get_id_in_range(t_idx)
         if t_idx == idx:
             same_person = 1
+            t_mirror = mirror
         else:
-            same_person = 0 
-        src_img, src_msk =  self.get_img_data(src_id)
-        dst_img, dst_msk =  self.get_img_data(dst_id)
-
-        src_img = self.transform(src_img)
-        src_msk = self.msk_trans(src_msk)
-        dst_img = self.transform(dst_img)
-        dst_msk = self.msk_trans(dst_msk)
+            same_person = 0
+            if random.random() >= 0.5:
+                t_mirror = True
+            else:
+                t_mirror = False   
+        src_img, src_msk =  self.get_img_data(src_id,mirror)
+        dst_img, dst_msk =  self.get_img_data(dst_id,t_mirror)
         return src_img,src_msk, dst_img,dst_msk,same_person     
+    
+    
 
 class MultiResolutionDataset(Dataset):
     def __init__(self, path, resolution=256, same_prob=0.5):
