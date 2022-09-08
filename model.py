@@ -45,11 +45,11 @@ class Zface(pl.LightningModule):
                                                                     'tf_efficientnet_lite0'])    
                                                                         
 
-        self.blur_init_sigma = 2
+        self.blur_init_sigma = 0
         self.blur_fade_kimg = 200
 
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
