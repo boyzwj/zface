@@ -275,23 +275,23 @@ class Ds(Dataset):
         if idx >= self.seed:
             idx = idx % self.seed
             mirror = True
-        src_id  = self.get_id_in_range(idx)
+        dst_id  = self.get_id_in_range(idx)
         if random.random() > self.same_prob:
-            t_idx = random.randrange(self.seed)
+            s_idx = random.randrange(self.seed)
         else:
-            t_idx = idx
-        dst_id = self.get_id_in_range(t_idx)
-        if t_idx == idx:
+            s_idx = idx
+        src_id = self.get_id_in_range(s_idx)
+        if s_idx == idx:
             same_person = 1
-            t_mirror = mirror
+            s_mirror = mirror
         else:
             same_person = 0
             if random.random() >= 0.5:
-                t_mirror = True
+                s_mirror = True
             else:
-                t_mirror = False   
-        src_img, src_msk =  self.get_img_data(src_id,mirror)
-        dst_img, dst_msk =  self.get_img_data(dst_id,t_mirror)
+                s_mirror = False   
+        src_img, src_msk =  self.get_img_data(src_id,s_mirror)
+        dst_img, dst_msk =  self.get_img_data(dst_id,mirror)
         return src_img,src_msk, dst_img,dst_msk,same_person     
     
     
