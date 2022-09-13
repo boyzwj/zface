@@ -15,12 +15,12 @@ def get_losses_weights(losses):
 
 
 if __name__ == '__main__':
-    losses = torch.tensor([1,2,3,4,10]) 
-    weight = get_losses_weights(losses)
-    print(weight)
-    new_losses =  losses / weight
-    print(new_losses)
-
+    half = torch.randn(10, 10, dtype=torch.float16, device='cuda')
+    const = torch.ones(10, 10, device='cuda')
+    inputs = torch.randn(10, 10, device='cuda')
+    
+    print(half * torch.erfc(const * inputs))
+    
     # F_id = torch.jit.script(ParametricFaceModel(is_train=False))
     # F_id.load_state_dict(torch.load('./weights/backbone_r100.pth'))
     # F_id.eval()

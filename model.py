@@ -8,7 +8,7 @@ import platform
 import torchvision
 from torchvision import transforms
 import pytorch_lightning as pl
-
+from torch_utils.ops import upfirdn2d
 # from models.generator import HififaceGenerator
 from models.gen2 import HififaceGenerator
 from models.discriminator import ProjectedDiscriminator
@@ -45,11 +45,11 @@ class Zface(pl.LightningModule):
                                                                     'tf_efficientnet_lite0'])    
                                                                         
 
-        self.blur_init_sigma = 0
+        self.blur_init_sigma = 2
         self.blur_fade_kimg = 200
 
-        self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
+        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -58,7 +58,11 @@ class Zface(pl.LightningModule):
         self.dst_img = None
         
         
-        self.automatic_optimization = False
+        self.automatic_optimization = False 
+        torch.autograd.set_detect_anomaly(False)
+        torch.autograd.profiler.profile(False)
+        torch.autograd.profiler.emit_nvtx(False)
+        torch.backends.cudnn.benchmark = True
 
 
 
@@ -101,6 +105,13 @@ class Zface(pl.LightningModule):
             result = result + [src, dst, dst_msk, out]
         self.c2s.put({'op':"show",'previews': result})
                 
+     
+    def run_D(self,img,blur_sigma = 0):
+        blur_size = np.floor(blur_sigma * 3)
+        if blur_size > 0:
+            f = torch.arange(-blur_size, blur_size + 1, device=img.device).div(blur_sigma).square().neg().exp2()
+            img = upfirdn2d.filter2d(img, f / f.sum())
+        return self.D(img)
             
     def training_step(self, batch, batch_idx):
         opt_g, opt_d = self.optimizers(use_pl_optimizer=True)
@@ -116,7 +127,7 @@ class Zface(pl.LightningModule):
         blur_sigma = max(1 - self.global_step / (self.blur_fade_kimg * 1e3), 0) * self.blur_init_sigma if self.blur_fade_kimg > 1 else 0
 
         I_swapped_high,I_swapped_low,c_fuse,id_source = self.G(I_source, I_target,mask_target)
-        I_cycle = self.G(I_swapped_high,I_source,mask_source)[0]
+        I_cycle = self.G(I_source,I_swapped_high,mask_target)[0]
         # Arcface 
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
         id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
@@ -133,8 +144,8 @@ class Zface(pl.LightningModule):
 
 
         # adversarial
-        fake_output = self.D(I_swapped_high,blur_sigma = blur_sigma)
-        real_output = self.D(I_target,blur_sigma = blur_sigma)
+        fake_output = self.run_D(I_swapped_high,blur_sigma = blur_sigma)
+        real_output = self.run_D(I_target,blur_sigma = blur_sigma)
 
         # fake_output = normalize_gradient(self.D,I_swapped_high,blur_sigma = blur_sigma)
         # real_output = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
@@ -160,17 +171,20 @@ class Zface(pl.LightningModule):
             
         }
         g_loss = self.loss.get_loss_G(G_dict)
-        opt_g.zero_grad()
+        # opt_g.zero_grad()
         self.manual_backward(g_loss)
-        opt_g.step()
+        # opt_g.step()
+        if (batch_idx + 1) % 4 == 0:
+            opt_g.step()
+            opt_g.zero_grad(set_to_none=True)
         # endregion
 
         ###########
         # train D #
         ###########
         I_target.requires_grad_()
-        d_true = self.D(I_target,blur_sigma = blur_sigma)
-        d_fake = self.D(I_swapped_high.detach(),blur_sigma = blur_sigma)
+        d_true = self.run_D(I_target,blur_sigma = blur_sigma)
+        d_fake = self.run_D(I_swapped_high.detach(),blur_sigma = blur_sigma)
 
         # d_true = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
         # d_fake = normalize_gradient(self.D,I_swapped_high.detach(),blur_sigma = blur_sigma)
@@ -183,9 +197,12 @@ class Zface(pl.LightningModule):
 
         d_loss = self.loss.get_loss_D(D_dict)
         
-        opt_d.zero_grad()
+        # opt_d.zero_grad()    
         self.manual_backward(d_loss)
-        opt_d.step()
+        # opt_d.step()
+        if (batch_idx + 1) % 4 == 0:
+            opt_d.step()
+            opt_d.zero_grad(set_to_none=True)
         self.log_dict(self.loss.loss_dict)
         # endregion
 

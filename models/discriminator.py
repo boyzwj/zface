@@ -1,3 +1,4 @@
+from audioop import bias
 import numpy as np
 import torch
 import torch.nn as nn
@@ -5,7 +6,7 @@ import torch.nn.functional as F
 from models.diff_augment import DiffAugment
 from models.projector import F_RandomProj
 from torch.nn.utils import spectral_norm
-from torch_utils.ops import upfirdn2d
+
 from torchvision.transforms import Normalize
 from models.constants import VITS
 from inplace_abn import InPlaceABN
@@ -27,11 +28,8 @@ class DownBlock(nn.Module):
     def __init__(self, in_planes, out_planes, width=1):
         super().__init__()
         self.main = nn.Sequential(
-            conv2d(in_planes, out_planes*width, 4, 2, 1),
-            nn.Mish(inplace=True)
-            # InPlaceABN(out_planes*width)
-            # NormLayer(out_planes*width),
-            # nn.Mish(inplace=True)
+            conv2d(in_planes, out_planes*width, 4, 2, 1,bias=False),
+            InPlaceABN(out_planes*width)
         )
 
     def forward(self, feat):
@@ -43,10 +41,8 @@ class DownBlockPatch(nn.Module):
         super().__init__()
         self.main = nn.Sequential(
             DownBlock(in_planes, out_planes),
-            conv2d(out_planes, out_planes, 1, 1, 0),
-            nn.Mish(inplace=True)
-            # NormLayer(out_planes),
-            # nn.Mish(inplace=True)
+            conv2d(out_planes, out_planes, 1, 1, 0,bias=False),
+            InPlaceABN(out_planes)
         )
 
     def forward(self, feat):
@@ -178,12 +174,7 @@ class ProjectedDiscriminator(torch.nn.Module):
     def eval(self):
         return self.train(False)
 
-    def forward(self, x, blur_sigma = 0):
-        blur_size = np.floor(blur_sigma * 3)
-        if blur_size > 0:
-            f = torch.arange(-blur_size, blur_size + 1, device=x.device).div(blur_sigma).square().neg().exp2()
-            x = upfirdn2d.filter2d(x, f / f.sum())
-            
+    def forward(self, x):  
         logits = []
         for bb_name, feat in self.feature_networks.items():
             x_aug = DiffAugment(x,['translation', 'color','cutout']) if self.diff_aug else x

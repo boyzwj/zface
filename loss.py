@@ -27,12 +27,12 @@ def dual_contrastive_loss(real_logits, fake_logits):
 class HifiFaceLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
-        self.W_adv = 0.01
+        self.W_adv = 0.1
         self.W_shape = 0.1
-        self.W_id = 1
+        self.W_id = 2
         self.W_recon = 25
-        self.W_cycle = 10
-        self.W_lpips = 10
+        self.W_cycle = 1
+        self.W_lpips = 5
         self.W_seg = 100
         
         self.weights =  torch.tensor([self.W_adv,self.W_shape,self.W_id,self.W_recon,self.W_cycle,self.W_lpips],device="cuda:0")
@@ -79,7 +79,7 @@ class HifiFaceLoss(LossInterface):
 
         # Cycle loss
         if self.W_cycle:
-            L_cycle = Loss.get_L3_loss(G_dict["I_cycle"], G_dict["I_source"])
+            L_cycle = Loss.get_L1_loss(G_dict["I_cycle"], G_dict["I_swapped_high"])
             # L_G += L_cycle * self.W_cycle         
 
 
@@ -90,9 +90,9 @@ class HifiFaceLoss(LossInterface):
             # L_G += L_lpips * self.W_lpips
 
 
-        losses = torch.tensor([L_adv,L_shape,L_id,L_recon,L_cycle,L_lpips],device="cuda:0")
-        w = get_losses_weights(losses * self.weights) * self.weights
-        
+        # losses = torch.tensor([L_adv,L_shape,L_id,L_recon,L_cycle,L_lpips],device="cuda:0")
+        # w = get_losses_weights(losses * self.weights) * self.weights
+        w = self.weights
         L_adv *=  w[0]
         L_shape *= w[1]
         L_id *= w[2]

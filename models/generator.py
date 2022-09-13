@@ -14,7 +14,7 @@ from models.activation import *
 import math
 from models.modulated_conv2d import  RGBBlock,Conv2DMod,Blur
 from models.cbam import CBAM
-from models.ca import CoordAtt
+from models.ca import ECA
 from einops import rearrange, repeat
 from inplace_abn import InPlaceABN
 
@@ -296,7 +296,7 @@ class ResBlock(nn.Module):
             ]            
         if attention:
              main_module_list += [
-                 CoordAtt(out_channel,out_channel)
+                 ECA(out_channel)
              ]
         self.main_path = nn.Sequential(*main_module_list)
         side_module_list = []
