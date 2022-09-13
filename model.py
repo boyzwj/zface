@@ -171,12 +171,10 @@ class Zface(pl.LightningModule):
             
         }
         g_loss = self.loss.get_loss_G(G_dict)
-        # opt_g.zero_grad()
+        opt_g.zero_grad(set_to_none=True)
         self.manual_backward(g_loss)
-        # opt_g.step()
-        if (batch_idx + 1) % 4 == 0:
-            opt_g.step()
-            opt_g.zero_grad(set_to_none=True)
+        opt_g.step()
+
         # endregion
 
         ###########
@@ -197,12 +195,9 @@ class Zface(pl.LightningModule):
 
         d_loss = self.loss.get_loss_D(D_dict)
         
-        # opt_d.zero_grad()    
+        opt_d.zero_grad(set_to_none=True)
         self.manual_backward(d_loss)
-        # opt_d.step()
-        if (batch_idx + 1) % 4 == 0:
-            opt_d.step()
-            opt_d.zero_grad(set_to_none=True)
+        opt_d.step()
         self.log_dict(self.loss.loss_dict)
         # endregion
 
