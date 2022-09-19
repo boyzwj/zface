@@ -9,7 +9,6 @@ from torch.nn.utils import spectral_norm
 
 from torchvision.transforms import Normalize
 from models.constants import VITS
-from inplace_abn import InPlaceABN
 from functools import partial
 
 def conv2d(*args, **kwargs):

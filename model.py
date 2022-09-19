@@ -10,7 +10,7 @@ from torchvision import transforms
 import pytorch_lightning as pl
 from torch_utils.ops import upfirdn2d
 # from models.generator import HififaceGenerator
-from models.gen2 import HififaceGenerator
+from models.gennew import HififaceGenerator
 from models.discriminator import ProjectedDiscriminator
 from torch import nn
 from dataset import *
