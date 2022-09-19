@@ -28,8 +28,9 @@ class DownBlock(nn.Module):
     def __init__(self, in_planes, out_planes, width=1):
         super().__init__()
         self.main = nn.Sequential(
-            conv2d(in_planes, out_planes*width, 4, 2, 1,bias=False),
-            InPlaceABN(out_planes*width)
+            nn.InstanceNorm2d(in_planes),
+            nn.Mish(inplace=True),
+            conv2d(in_planes, out_planes*width, 4, 2, 1)
         )
 
     def forward(self, feat):
@@ -41,8 +42,9 @@ class DownBlockPatch(nn.Module):
         super().__init__()
         self.main = nn.Sequential(
             DownBlock(in_planes, out_planes),
-            conv2d(out_planes, out_planes, 1, 1, 0,bias=False),
-            InPlaceABN(out_planes)
+            nn.InstanceNorm2d(in_planes),
+            nn.Mish(inplace=True),
+            conv2d(out_planes, out_planes, 1, 1, 0),
         )
 
     def forward(self, feat):

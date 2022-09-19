@@ -216,9 +216,10 @@ class GenResBlk(nn.Module):
             self.up_sample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         else:
             self.up_sample = nn.Identity()
-        self.conv1 = StyledConv2d(dim_in,dim_out,style_dim)
-        self.conv2 = StyledConv2d(dim_out,dim_out,style_dim)
-        # self.att = ECA(dim_out)
+        self.conv1 = Conv2DMod(dim_in, dim_out, 3, stride=1, dilation=1)
+        self.conv2 = Conv2DMod(dim_out, dim_out, 3, stride=1, dilation=1)
+        self.style1 = nn.Linear(style_dim, dim_in)
+        self.style2 = nn.Linear(style_dim, dim_out)
         if dim_in != dim_out:
             self.conv1x1 = nn.Conv2d(dim_in, dim_out, 1, 1, 0, bias=False)
         else:
@@ -228,28 +229,25 @@ class GenResBlk(nn.Module):
     def forward(self, x, s ,rgb = None):
         x = self.up_sample(x)
         x_ = self.conv1x1(x)
-        x = self.conv1(x, s)
-        x = self.conv2(x, s)
-        x = x + x_
+        s1 = self.style1(s)
+        x = self.conv1(x, s1)
+        x = self.actv(x)
+        s2 = self.style2(s)
+        x = self.conv2(x, s2)
+        x = self.actv(x + x_)
         if exists(self.toRGB):
             rgb = self.toRGB(x,s, rgb)
             return x, rgb
         else:
-            return x    
+            return x     
 
 
     
 class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,bn = False,attention = False,activation='lrelu'):
+    def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
         super(ResBlock, self).__init__()     
         main_module_list = []
-        if bn:
-            main_module_list += [
-                nn.Conv2d(in_channel,in_channel, 3, 1, 1,bias=False),
-                InPlaceABN(in_channel)
-            ]
-        else:
-            main_module_list += [
+        main_module_list += [
                 nn.InstanceNorm2d(in_channel,affine=True),
                 set_activate_layer(activation),
                 nn.Conv2d(in_channel,in_channel, 3, 1, 1,bias=False),
@@ -260,13 +258,8 @@ class ResBlock(nn.Module):
             main_module_list += [
                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
                 ]
-        if bn:
-            main_module_list += [
-                nn.Conv2d(in_channel,out_channel, 3, 1, 1,bias=False),
-                InPlaceABN(out_channel)
-            ]
-        else:
-            main_module_list += [
+
+        main_module_list += [
                 nn.InstanceNorm2d(in_channel,affine=True),
                 set_activate_layer(activation),
                 nn.Conv2d(in_channel,out_channel, 3, 1, 1)
@@ -481,44 +474,42 @@ class Decoder(nn.Module):
     def __init__(self, style_dim=659, activation='lrelu'):
         super(Decoder, self).__init__()
         self.d1 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
+        self.att1 = ECA(768)
         self.d2 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
+        self.att2 = ECA(768)
         self.d3 = GenResBlk(768, 512, up_sample=True, style_dim=style_dim,activation=activation)
+        self.att3 = ECA(512)        
         self.d4 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
+        self.att4 = ECA(512)        
         self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
+        self.att5 = ECA(256)        
         self.apply(weight_init)
 
     def forward(self, x, s):
         x = self.d1(x,s)
+        x = self.att1(x)
         x = self.d2(x,s)
+        x = self.att2(x)
         x = self.d3(x,s)
+        x = self.att3(x)        
         x = self.d4(x,s)
+        x = self.att4(x)        
         x = self.d5(x,s)
+        x = self.att5(x)        
         return x
 
 
 
-class F_up(nn.Module):
-    def __init__(self, style_dim,activation = 'lrelu'):
-        super(F_up, self).__init__()
-        self.block1 = GenResBlk(256, 128, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.block2 = GenResBlk(128, 64, up_sample = True, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.block3 = GenResBlk(64, 32, up_sample = False, style_dim=style_dim,return_rgb=True,activation=activation)
-        self.block4 = GenResBlk(32, 16, up_sample = False, style_dim=style_dim,return_rgb=True,activation=activation)
-    def forward(self, x, s,rgb = None):
-        x, rgb = self.block1(x, s,rgb)
-        x, rgb = self.block2(x, s,rgb)
-        x, rgb = self.block3(x, s,rgb)
-        x, rgb = self.block4(x, s,rgb)
-        return rgb
 
 
 class FinalUp(nn.Module):
     def __init__(self, style_dim=659,activation = 'lrelu'):
         super(FinalUp, self).__init__()
-        self.u1 = GenResBlk(256, 128, up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u2 = GenResBlk(128, 64,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u3 = GenResBlk(64,  32,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u4 = GenResBlk(32,  16,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u1 = GenResBlk(256, 128,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u2 = GenResBlk(128, 128,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u3 = GenResBlk(128, 64,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u4 = GenResBlk(64, 16,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
+        
     def forward(self, x,s,rgb = None):
         x,rgb  = self.u1(x,s,rgb)
         x,rgb  = self.u2(x,s,rgb)

@@ -181,7 +181,7 @@ class AdaInResBlock(nn.Module):
         
 
 class GenResBlk(nn.Module):
-    def __init__(self, dim_in, dim_out, style_dim=662, 
+    def __init__(self, dim_in, dim_out, style_dim=659, 
                  activation='lrelu', up_sample=False,return_rgb=False):
         super().__init__()
         self.actv = set_activate_layer(activation)

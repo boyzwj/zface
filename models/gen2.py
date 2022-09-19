@@ -16,8 +16,6 @@ from models.modulated_conv2d import  RGBBlock,Conv2DMod,StyledConv2d
 from models.cbam import CBAM
 from models.ca import CoordAtt,ECA
 from einops import rearrange, repeat
-from inplace_abn import InPlaceABN
-
 
 mean = torch.tensor([0.485, 0.456, 0.406])
 std = torch.tensor([0.229, 0.224, 0.225])
@@ -135,9 +133,10 @@ class GenResBlk(nn.Module):
             self.up_sample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         else:
             self.up_sample = nn.Identity()
-        self.conv1 = StyledConv2d(dim_in,dim_out,style_dim)
-        self.conv2 = StyledConv2d(dim_out,dim_out,style_dim)
-        self.att = ECA(dim_out)
+        self.conv1 = Conv2DMod(dim_in, dim_out, 3, stride=1, dilation=1)
+        self.conv2 = Conv2DMod(dim_out, dim_out, 3, stride=1, dilation=1)
+        self.style1 = nn.Linear(style_dim, dim_in)
+        self.style2 = nn.Linear(style_dim, dim_out)
         if dim_in != dim_out:
             self.conv1x1 = nn.Conv2d(dim_in, dim_out, 1, 1, 0, bias=False)
         else:
@@ -147,10 +146,12 @@ class GenResBlk(nn.Module):
     def forward(self, x, s ,rgb = None):
         x = self.up_sample(x)
         x_ = self.conv1x1(x)
-        x = self.conv1(x, s)
-        x = self.conv2(x, s)
-        x = self.att(x)
-        x = x + x_
+        s1 = self.style1(s)
+        x = self.conv1(x, s1)
+        x = self.actv(x)
+        s2 = self.style2(s)
+        x = self.conv2(x, s2)
+        x = self.actv(x + x_)
         if exists(self.toRGB):
             rgb = self.toRGB(x,s, rgb)
             return x, rgb
@@ -158,19 +159,13 @@ class GenResBlk(nn.Module):
             return x    
 
 
-
     
 class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,bn = False,attention = False,activation='lrelu'):
+    def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
         super(ResBlock, self).__init__()     
         main_module_list = []
-        if bn:
-            main_module_list += [
-                InPlaceABN(in_channel),
-                nn.Conv2d(in_channel,in_channel, 3, 1, 1,bias=False)
-            ]
-        else:
-            main_module_list += [
+
+        main_module_list += [
                 nn.InstanceNorm2d(in_channel),
                 set_activate_layer(activation),
                 nn.Conv2d(in_channel,in_channel, 3, 1, 1),
@@ -181,13 +176,8 @@ class ResBlock(nn.Module):
             main_module_list += [
                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
                 ]
-        if bn:
-            main_module_list += [
-                InPlaceABN(out_channel),
-                nn.Conv2d(in_channel,out_channel, 3, 1, 1,bias=False)
-            ]
-        else:
-            main_module_list += [
+
+        main_module_list += [
                 nn.InstanceNorm2d(in_channel),
                 set_activate_layer(activation),
                 nn.Conv2d(in_channel,out_channel, 3, 1, 1)
@@ -302,32 +292,16 @@ class Encoder(nn.Module):
     def __init__(self, norm='in', activation='lrelu',size = 256):
         super(Encoder, self).__init__()
         self.first =  nn.Sequential(
-            nn.Conv2d(3, 64, 3, 1, 1),
+            nn.Conv2d(3, 64, 7, 1, 3),
         )
-        self.stage1 = nn.Sequential(
-            ResBlock(64, 128, down_sample=True,attention=True,activation=activation),
-            ResBlock(128, 128, down_sample=False,attention=True,activation=activation),
-
-        ) #128
-
-        self.stage2 = nn.Sequential(
-            ResBlock(128, 256, down_sample=True,attention=True,activation=activation),
-            ResBlock(256, 256, down_sample=False,attention=True,activation=activation),
-        ) #64
-
-        self.stage3 = nn.Sequential(
-            ResBlock(256, 512, down_sample=True,attention=True,activation=activation),
-            ResBlock(512, 512, down_sample=False,attention=True,activation=activation),
-        ) #32
-
-        self.stage4 =  nn.Sequential(
-            ResBlock(512, 512, down_sample=True,attention=True,activation=activation),
-            ResBlock(512, 512, down_sample=False,attention=True,activation=activation),
-        ) #16
-
-        self.stage5 =  nn.Sequential(
-            ResBlock(512, 512, down_sample=True,attention=True,activation=activation),
-        ) #8
+        
+        self.d1 = ResBlock(64, 128, down_sample=True,attention=True,activation=activation)
+        self.d2 = ResBlock(128, 256, down_sample=True,attention=True,activation=activation)
+        self.d3 = ResBlock(256, 512, down_sample=True,attention=True,activation=activation)
+        self.d4 = ResBlock(512, 512, down_sample=True,attention=True,activation=activation)
+        self.d5 = ResBlock(512, 512, down_sample=True,attention=True,activation=activation)
+        self.d6 = ResBlock(512, 512, down_sample=False,attention=True,activation=activation)
+        self.d7 = ResBlock(512, 512, down_sample=False,attention=True,activation=activation)
         self.skip = nn.Sequential(
             ResBlock(256, 256, down_sample=False,attention=True, activation=activation),
         )
@@ -337,11 +311,13 @@ class Encoder(nn.Module):
         
     def forward(self, x):
         x = self.first(x) # 64x256x256
-        x = self.stage1(x) # 32x128x128
-        x = self.stage2(x) # 64x64x64
-        y = self.stage3(x) # 128x32x32
-        y = self.stage4(y) # 256x16xx16
-        y = self.stage5(y) # 512x8x8
+        x = self.d1(x) # 32x128x128
+        x = self.d2(x) # 64x64x64
+        y = self.d3(x) # 128x32x32
+        y = self.d4(y) # 256x16xx16
+        y = self.d5(y) # 512x8x8
+        y = self.d6(y) # 512x8x8
+        y = self.d7(y) # 512x8x8
         z = self.skip(x)
         return y, z
 
@@ -350,18 +326,28 @@ class Decoder(nn.Module):
     def __init__(self, style_dim=659, activation='lrelu'):
         super(Decoder, self).__init__()
         self.d1 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation) #8
+        self.att1 = ECA(512)
         self.d2 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)  #16
+        self.att2 = ECA(512)
         self.d3 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation) #16
+        self.att3 = ECA(512)
         self.d4 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)  #32
+        self.att4 = ECA(512)
         self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)  #32
+        self.att5 = ECA(256)
         self.apply(weight_init)
 
     def forward(self, x, s):
         x = self.d1(x,s)
+        x = self.att1(x)
         x = self.d2(x,s)
+        x = self.att2(x)
         x = self.d3(x,s)
+        x = self.att3(x)        
         x = self.d4(x,s)
+        x = self.att4(x)        
         x = self.d5(x,s)
+        x = self.att5(x)        
         return x
 
 
