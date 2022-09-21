@@ -27,9 +27,9 @@ def dual_contrastive_loss(real_logits, fake_logits):
 class HifiFaceLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
-        self.W_adv = 0.1
-        self.W_shape = 0.1
-        self.W_id = 2
+        self.W_adv = 0.05
+        self.W_shape = 0.5
+        self.W_id = 5
         self.W_recon = 25
         self.W_cycle = 1
         self.W_lpips = 5

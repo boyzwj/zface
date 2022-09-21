@@ -3,7 +3,7 @@ batch_size: 8
 dataset: sexyface
 image_size: 256
 latent_dim: 512
-learning_rate: 0.0001
+learning_rate: 3.0e-05
 preview_num: 8
-resume: false
+resume: true
 train_name: '02'

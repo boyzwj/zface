@@ -424,6 +424,7 @@ class Encoder(nn.Module):
         self.b1 = nn.Sequential(
             Block(256),
             Block(256),
+            Block(256),
         )#64
 
         self.b2 = nn.Sequential(
@@ -431,22 +432,29 @@ class Encoder(nn.Module):
             nn.Conv2d(256, 512, kernel_size=2, stride=2),
             Block(512),
             Block(512),
+            Block(512),
         )#32
 
         self.b3 = nn.Sequential(
             LayerNorm(512,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(512, 512, kernel_size=2, stride=2),
-            Block(512),
-            Block(512),
-            Block(512),
-            Block(512),
-        )#16
-
-        self.b4 = nn.Sequential(
-            LayerNorm(512,eps=1e-6, data_format="channels_first"),
             nn.Conv2d(512, 768, kernel_size=2, stride=2),
             Block(768),
             Block(768),
+            Block(768),
+            Block(768),
+            Block(768),
+            Block(768),
+            Block(768),
+            Block(768),
+            Block(768),
+        )#16
+
+        self.b4 = nn.Sequential(
+            LayerNorm(768,eps=1e-6, data_format="channels_first"),
+            nn.Conv2d(768, 1024, kernel_size=2, stride=2),
+            Block(1024),
+            Block(1024),
+            Block(1024)
         )#8
 
         self.skip = nn.Sequential(
@@ -472,13 +480,13 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=659, activation='lrelu'):
         super(Decoder, self).__init__()
-        self.d1 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
-        self.att1 = ECA(768)
-        self.d2 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
-        self.att2 = ECA(768)
-        self.d3 = GenResBlk(768, 512, up_sample=True, style_dim=style_dim,activation=activation)
-        self.att3 = ECA(512)        
-        self.d4 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)
+        self.d1 = GenResBlk(1024, 1024, up_sample=False, style_dim=style_dim,activation=activation)
+        self.att1 = ECA(1024)
+        self.d2 = GenResBlk(1024, 1024, up_sample=False, style_dim=style_dim,activation=activation)
+        self.att2 = ECA(1024)
+        self.d3 = GenResBlk(1024, 768, up_sample=True, style_dim=style_dim,activation=activation)
+        self.att3 = ECA(768)        
+        self.d4 = GenResBlk(768, 512, up_sample=True, style_dim=style_dim,activation=activation)
         self.att4 = ECA(512)        
         self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)
         self.att5 = ECA(256)        
@@ -504,15 +512,23 @@ class Decoder(nn.Module):
 class FinalUp(nn.Module):
     def __init__(self, style_dim=659,activation = 'lrelu'):
         super(FinalUp, self).__init__()
+        self.att1 = ECA(256)
         self.u1 = GenResBlk(256, 128,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.att2 = ECA(128)
         self.u2 = GenResBlk(128, 128,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.att3 = ECA(128)
         self.u3 = GenResBlk(128, 64,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.att4 = ECA(64)
         self.u4 = GenResBlk(64, 16,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
         
     def forward(self, x,s,rgb = None):
+        x = self.att1(x)
         x,rgb  = self.u1(x,s,rgb)
+        x = self.att2(x)        
         x,rgb  = self.u2(x,s,rgb)
+        x = self.att3(x)        
         x,rgb  = self.u3(x,s,rgb)
+        x = self.att4(x)        
         x,rgb  = self.u4(x,s,rgb)
         return x,rgb
 
