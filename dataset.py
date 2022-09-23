@@ -257,7 +257,24 @@ class Ds(Dataset):
         if mirror:
             img = TF.hflip(img)
             msk = TF.hflip(msk)
+        angle = random.randint(-8,8)
+        img = TF.rotate(img,angle=angle,interpolation=transforms.InterpolationMode.BILINEAR)
+        msk = TF.rotate(msk,angle=angle,interpolation=transforms.InterpolationMode.BILINEAR)
         return img, msk
+
+    def get_src_img_data(self,id, mirror = False):
+        if not hasattr(self, 'txn'):
+            self.open_lmdb()
+        with self.env.begin(write=False) as txn:
+            img_key = f"img-{str(id).zfill(7)}".encode("utf-8")
+            img_bytes = txn.get(img_key)
+
+        img_buffer = BytesIO(img_bytes)
+        img = Image.open(img_buffer)
+        img = self.transform(img)
+        if mirror:
+            img = TF.hflip(img)
+        return img
 
     def get_id_in_range(self,idx):
         if not hasattr(self, 'txn'):
@@ -290,9 +307,9 @@ class Ds(Dataset):
                 s_mirror = True
             else:
                 s_mirror = False   
-        src_img, src_msk =  self.get_img_data(src_id,s_mirror)
+        src_img =  self.get_src_img_data(src_id,s_mirror)
         dst_img, dst_msk =  self.get_img_data(dst_id,mirror)
-        return src_img,src_msk, dst_img,dst_msk,same_person     
+        return src_img, dst_img,dst_msk,same_person     
     
     
 

@@ -46,7 +46,7 @@ class Zface(pl.LightningModule):
                                                                         
 
         self.blur_init_sigma = 2
-        self.blur_fade_kimg = 200
+        self.blur_fade_kimg = 100
 
         # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
         # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
@@ -115,7 +115,7 @@ class Zface(pl.LightningModule):
             
     def training_step(self, batch, batch_idx):
         opt_g, opt_d = self.optimizers(use_pl_optimizer=True)
-        I_source,mask_source,I_target,mask_target, same_person = batch
+        I_source,I_target,mask_target, same_person = batch
 
         if self.src_img == None:
             self.src_img = I_source[:3]
@@ -144,8 +144,11 @@ class Zface(pl.LightningModule):
 
 
         # adversarial
+        I_source.requires_grad_()
+        real_output = self.run_D(I_source,blur_sigma = blur_sigma)
         fake_output = self.run_D(I_swapped_high,blur_sigma = blur_sigma)
-        real_output = self.run_D(I_target,blur_sigma = blur_sigma)
+ 
+ 
 
         # fake_output = normalize_gradient(self.D,I_swapped_high,blur_sigma = blur_sigma)
         # real_output = normalize_gradient(self.D,I_target,blur_sigma = blur_sigma)
