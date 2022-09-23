@@ -23,7 +23,7 @@ def trainerThread(cfg, s2c = None, c2s = None):
     trainer = Trainer(
             accelerator='gpu', 
             devices=1,
-            # precision="bf16",
+            precision=16,
             # amp_backend ="apex", 
             # amp_level='O1',
             callbacks=[checkpoint_callback],

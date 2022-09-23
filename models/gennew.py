@@ -30,9 +30,9 @@ def exists(val):
 def set_activate_layer(types):
     # initialize activation
     if types == 'relu':
-        activation = nn.ReLU()
+        activation = nn.ReLU(inplace=True)
     elif types == 'relu6':
-        activation = nn.ReLU6()
+        activation = nn.ReLU6(inplace=True)
     elif types == 'lrelu':
         activation = nn.LeakyReLU(0.2,inplace=True)
     elif types == 'mish':
@@ -338,8 +338,7 @@ class Block(nn.Module):
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
-        # self.act = nn.GELU()
-        self.act = nn.Mish(inplace=True)
+        self.act = nn.GELU()
         self.pwconv2 = nn.Linear(4 * dim, dim)
         self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim),dtype=torch.float),
                                     requires_grad=True) if layer_scale_init_value > 0 else None
@@ -381,7 +380,6 @@ class Encoder(nn.Module):
             nn.Conv2d(256, 512, kernel_size=2, stride=2),
             Block(512),
             Block(512),
-            Block(512),
         )#32
 
         self.b3 = nn.Sequential(
@@ -393,16 +391,13 @@ class Encoder(nn.Module):
             Block(768),
             Block(768),
             Block(768),
-            Block(768),
-            Block(768),
-            Block(768),
         )#16
 
         self.b4 = nn.Sequential(
             LayerNorm(768,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(768, 1024, kernel_size=2, stride=2),
-            Block(1024),
-            Block(1024),
+            nn.Conv2d(768, 768, kernel_size=2, stride=2),
+            Block(768),
+            Block(768),
         )#8
 
         self.skip = nn.Sequential(
@@ -428,24 +423,18 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=659, activation='lrelu'):
         super(Decoder, self).__init__()
-        self.att1 = attn_and_ff(1024)
-        self.d1 = GenResBlk(1024, 1024, up_sample=False, style_dim=style_dim,activation=activation)
-        self.d2 = GenResBlk(1024, 1024, up_sample=False, style_dim=style_dim,activation=activation)
-        self.att3 = attn_and_ff(1024)
-        self.d3 = GenResBlk(1024, 768, up_sample=True, style_dim=style_dim,activation=activation)     
-        self.d4 = GenResBlk(768, 512, up_sample=True, style_dim=style_dim,activation=activation)
-        self.att5 = attn_and_ff(512)        
+        self.d1 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
+        self.d2 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
+        self.d3 = GenResBlk(768, 768, up_sample=True, style_dim=style_dim,activation=activation)     
+        self.d4 = GenResBlk(768, 512, up_sample=True, style_dim=style_dim,activation=activation)    
         self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)     
         self.apply(weight_init)
 
     def forward(self, x, s):
-        x = self.att1(x)
         x = self.d1(x,s)
         x = self.d2(x,s)
-        x = self.att3(x)
         x = self.d3(x,s)    
-        x = self.d4(x,s)
-        x = self.att5(x)        
+        x = self.d4(x,s)    
         x = self.d5(x,s)   
         return x
 

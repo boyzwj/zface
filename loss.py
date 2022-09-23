@@ -35,7 +35,7 @@ class HifiFaceLoss(LossInterface):
         self.W_lpips = 5
         self.W_seg = 100
         
-        self.weights =  torch.tensor([self.W_adv,self.W_shape,self.W_id,self.W_recon,self.W_cycle,self.W_lpips],device="cuda:0")
+        self.weights =  torch.as_tensor([self.W_adv,self.W_shape,self.W_id,self.W_recon,self.W_cycle,self.W_lpips],device="cuda:0")
         self.batch_size = args["batch_size"]
         # self.face_pool = torch.nn.AdaptiveAvgPool2d((64, 64)).to("cuda").eval()
 

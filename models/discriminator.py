@@ -28,8 +28,8 @@ class DownBlock(nn.Module):
         super().__init__()
         self.main = nn.Sequential(
             nn.GroupNorm(32,in_planes),
-            nn.Mish(inplace=True),
-            conv2d(in_planes, out_planes*width, 4, 2, 1)
+            nn.LeakyReLU(0.2,inplace=True),
+            conv2d(in_planes, out_planes*width, 4, 2, 1,bias=False)
         )
 
     def forward(self, feat):
@@ -41,9 +41,9 @@ class DownBlockPatch(nn.Module):
         super().__init__()
         self.main = nn.Sequential(
             DownBlock(in_planes, out_planes),
+            nn.LeakyReLU(0.2,inplace=True),
             nn.GroupNorm(32,in_planes),
-            nn.Mish(inplace=True),
-            conv2d(out_planes, out_planes, 1, 1, 0),
+            conv2d(out_planes, out_planes, 1, 1, 0,bias=False),
         )
 
     def forward(self, feat):
@@ -79,7 +79,7 @@ class SingleDisc(nn.Module):
         # Head if the initial input is the full modality
         if head:
             layers += [conv2d(nc, nfc[256], 3, 1, 1, bias=False),
-                       nn.Mish(inplace=True)
+                    nn.LeakyReLU(0.2, inplace=True)
                        ]
 
         # Down Blocks

@@ -13,4 +13,5 @@ pip install inplace_abn
 pip install lmdb
 pip install lpips
 pip install PyQt5  PyQt5-tools
+pip install ninja
 ```
