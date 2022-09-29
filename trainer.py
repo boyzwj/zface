@@ -1,6 +1,6 @@
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint,LearningRateMonitor
 
 from model import Zface
 import yaml
@@ -19,14 +19,14 @@ def trainerThread(cfg, s2c = None, c2s = None):
     if cfg["resume"]:
         resume_from_checkpoint = f'{checkpoint_callback.dirpath}/last.ckpt'
 
-
+    lr_monitor = LearningRateMonitor(logging_interval='step')
     trainer = Trainer(
             accelerator='gpu', 
             devices=1,
             precision=16,
             # amp_backend ="apex", 
             # amp_level='O1',
-            callbacks=[checkpoint_callback],
+            callbacks=[checkpoint_callback,lr_monitor],
             max_epochs=50)
 
     # trainer.tune(model)

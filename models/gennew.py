@@ -197,9 +197,9 @@ class ResBlock(nn.Module):
         super(ResBlock, self).__init__()     
         main_module_list = []
         main_module_list += [
-                nn.InstanceNorm2d(in_channel,affine=True),
+                nn.InstanceNorm2d(in_channel),
                 set_activate_layer(activation),
-                nn.Conv2d(in_channel,in_channel, 3, 1, 1,bias=False),
+                nn.Conv2d(in_channel,in_channel, 3, 1, 1),
             ]
         if down_sample:
             main_module_list.append(nn.AvgPool2d(kernel_size=2))
@@ -209,7 +209,7 @@ class ResBlock(nn.Module):
                 ]
 
         main_module_list += [
-                nn.InstanceNorm2d(in_channel,affine=True),
+                nn.InstanceNorm2d(in_channel),
                 set_activate_layer(activation),
                 nn.Conv2d(in_channel,out_channel, 3, 1, 1)
             ]            
@@ -256,13 +256,14 @@ def weight_init(m):
 class ShapeAwareIdentityExtractor(nn.Module):
     def __init__(self):
         super(ShapeAwareIdentityExtractor, self).__init__()
-        self.F_id100 = iresnet50(pretrained=False, fp16=True)
-        self.F_id100.load_state_dict(torch.load('./weights/backbone_r50.pth'))
+        self.F_id100 = torch.jit.script(iresnet100(pretrained=False, fp16=True))
+        # self.F_id100.load_state_dict(torch.load('./weights/backbone_r100.pth'))
+        self.F_id100.load_state_dict(torch.load('./weights/r100.pth'))
         self.F_id100.eval()
         
         for param in self.F_id100.parameters():
             param.requires_grad = False
-        self.net_recon = ReconNet()
+        self.net_recon = torch.jit.script(ReconNet())
         self.net_recon.load_state_dict(torch.load('./weights/epoch_20.pth')['net_recon'])
         self.net_recon.eval()
         for param in self.net_recon.parameters():
@@ -366,42 +367,43 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
 
         self.first =  nn.Sequential(
-            nn.Conv2d(3, 256, 4,4),
-            LayerNorm(256,eps=1e-6, data_format="channels_first")  
+            nn.Conv2d(3, 96, 4,4),
+            LayerNorm(96,eps=1e-6, data_format="channels_first")  
             ) 
 
         self.b1 = nn.Sequential(
-            Block(256),
-            Block(256),
+            Block(96),
+            Block(96),
         )#64
 
         self.b2 = nn.Sequential(
-            LayerNorm(256,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(256, 512, kernel_size=2, stride=2),
-            Block(512),
-            Block(512),
+            LayerNorm(96,eps=1e-6, data_format="channels_first"),
+            nn.Conv2d(96, 192, kernel_size=2, stride=2),
+            Block(192),
+            Block(192),
         )#32
 
         self.b3 = nn.Sequential(
-            LayerNorm(512,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(512, 768, kernel_size=2, stride=2),
-            Block(768),
-            Block(768),
-            Block(768),
-            Block(768),
-            Block(768),
-            Block(768),
+            LayerNorm(192,eps=1e-6, data_format="channels_first"),
+            nn.Conv2d(192, 384, kernel_size=2, stride=2),
+            Block(384),
+            Block(384),
+            Block(384),
+            Block(384),
+            Block(384),
+            Block(384),
+            Block(384), 
         )#16
 
         self.b4 = nn.Sequential(
-            LayerNorm(768,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(768, 768, kernel_size=2, stride=2),
+            LayerNorm(384,eps=1e-6, data_format="channels_first"),
+            nn.Conv2d(384, 768, kernel_size=2, stride=2),
             Block(768),
             Block(768),
         )#8
 
         self.skip = nn.Sequential(
-            Block(256)
+            Block(96)
         )#8
         # self.apply(self._init_weights)
         
@@ -425,9 +427,9 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.d1 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
         self.d2 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
-        self.d3 = GenResBlk(768, 768, up_sample=True, style_dim=style_dim,activation=activation)     
-        self.d4 = GenResBlk(768, 512, up_sample=True, style_dim=style_dim,activation=activation)    
-        self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)     
+        self.d3 = GenResBlk(768, 384, up_sample=True, style_dim=style_dim,activation=activation)     
+        self.d4 = GenResBlk(384, 192, up_sample=True, style_dim=style_dim,activation=activation)    
+        self.d5 = GenResBlk(192, 96, up_sample=True, style_dim=style_dim,activation=activation)     
         self.apply(weight_init)
 
     def forward(self, x, s):
@@ -445,10 +447,10 @@ class Decoder(nn.Module):
 class FinalUp(nn.Module):
     def __init__(self, style_dim=659,activation = 'lrelu'):
         super(FinalUp, self).__init__()
-        self.u1 = GenResBlk(256, 128,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u2 = GenResBlk(128, 128,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u3 = GenResBlk(128, 64,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u4 = GenResBlk(64, 16,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u1 = GenResBlk(96, 96,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u2 = GenResBlk(96, 48,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u3 = GenResBlk(48, 48,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u4 = GenResBlk(48, 48,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
         
     def forward(self, x,s,rgb = None):
         x,rgb  = self.u1(x,s,rgb)     
@@ -462,7 +464,7 @@ class FinalUp(nn.Module):
 class SemanticFacialFusionModule(nn.Module):
     def __init__(self, norm='in', activation='lrelu', style_dim=659):
         super(SemanticFacialFusionModule, self).__init__()
-        self.z_fuse_block_n  = GenResBlk(256, 256, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
+        self.z_fuse_block_n  = GenResBlk(96, 96, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
         self.f_up_n = FinalUp(activation=activation,style_dim=style_dim)
         self.apply(weight_init)
 
@@ -470,6 +472,7 @@ class SemanticFacialFusionModule(nn.Module):
     def forward(self, target_image,mask_high, z_enc, z_dec, id_vector):
         mask_low = F.interpolate(mask_high, scale_factor=0.25,mode='bilinear')
         z_fuse = mask_low * z_dec + (1 - mask_low) * z_enc
+        # z_fuse = torch.cat((z_dec, z_enc),dim=1)
         z_fuse,i_low = self.z_fuse_block_n(z_fuse, id_vector)
         _ , i_r = self.f_up_n(z_fuse,id_vector)
         i_r = mask_high * i_r + (1 - mask_high) * target_image

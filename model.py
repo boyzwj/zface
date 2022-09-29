@@ -1,7 +1,9 @@
+from sched import scheduler
 import torch
 import torch.nn.functional as F
 
-from torch.optim import Adam
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import *
 from torch.utils.data import DataLoader
 import platform
 import torchvision
@@ -40,15 +42,18 @@ class Zface(pl.LightningModule):
 
 
         self.G = HififaceGenerator(activation=cfg["activation"])
-        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['deit_base_distilled_patch16_224',
-                                                                    'tf_efficientnet_lite0'])    
+        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['convnext_base_in22ft1k',
+                                                                    # 'tf_efficientnet_b2_ns',
+                                                                    'deit_base_distilled_patch16_224'
+                                                                    ])    
                                                                         
 
         self.blur_init_sigma = 2
         self.blur_fade_kimg = 100
 
-        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=True)
-        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=True)
+        # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
+        # self.D.load_state_dict(torch.load("./weights/D.pth"),strict=False)
+        
         self.loss = HifiFaceLoss(cfg)
         self.s2c = s2c
         self.c2s = c2s
@@ -107,6 +112,7 @@ class Zface(pl.LightningModule):
      
     def run_D(self,img,blur_sigma = 0):
         blur_size = np.floor(blur_sigma * 3)
+        self.log("blur_size",blur_size)
         if blur_size > 0:
             f = torch.arange(-blur_size, blur_size + 1, device=img.device).div(blur_sigma).square().neg().exp2()
             img = upfirdn2d.filter2d(img, f / f.sum())
@@ -211,27 +217,27 @@ class Zface(pl.LightningModule):
 
 
             
-
+    def training_epoch_end(self, outputs) :
+        sch1, sch2 = self.lr_schedulers()
+        if isinstance(sch1,CosineAnnealingWarmRestarts):
+            sch1.step()
+        if isinstance(sch2,CosineAnnealingWarmRestarts):
+            sch2.step()
+        return super().training_epoch_end(outputs)
 
     def configure_optimizers(self):
-        optimizer_list = []
-        
-        optimizer_g = torch.optim.AdamW(self.G.parameters(), lr=self.lr, betas=(self.b1, self.b2))
-        optimizer_list.append({"optimizer": optimizer_g})
-        optimizer_d = torch.optim.AdamW(self.D.parameters(), lr=self.lr * 0.8 , betas=(self.b1, self.b2))
-        optimizer_list.append({"optimizer": optimizer_d})
-        
-        return optimizer_list
+        # optimizer_list = []
+        optimizer_g = AdamW(self.G.parameters(), lr=self.lr, betas=(self.b1, self.b2))
+        # optimizer_list.append({"optimizer": optimizer_g})
+        optimizer_d = AdamW(self.D.parameters(), lr=self.lr * 0.8 , betas=(self.b1, self.b2))
+        # optimizer_list.append({"optimizer": optimizer_d})
+        scheduler_g = CosineAnnealingWarmRestarts(optimizer=optimizer_g,T_0=5,T_mult=2,verbose=True)
+        scheduler_d = CosineAnnealingWarmRestarts(optimizer=optimizer_d,T_0=5,T_mult=2,verbose=True)
+        return [optimizer_g,optimizer_d],[scheduler_g,scheduler_d]
 
     def train_dataloader(self):
-        # dataset = HifiFaceDataset2(["../../Customface","../../facefuck"])
-        # dataset = HifiFaceDataset2(["../../Customface","../../facefuck","../../FFHQ","../../CelebA-HQ"])
-        # dataset = MultiResolutionDataset("../../ffhq/",resolution=self.size)
         dataset = Ds("../../test",resolution=self.size)
         num_workers = 4
         persistent_workers = True
-        # if(platform.system()=='Windows'):
-        #     num_workers = 0
-        #     persistent_workers = False
         return DataLoader(dataset, batch_size=self.batch_size,pin_memory=True,num_workers=num_workers, shuffle=True,persistent_workers=persistent_workers, drop_last=True)
 

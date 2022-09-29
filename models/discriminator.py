@@ -178,7 +178,7 @@ class ProjectedDiscriminator(torch.nn.Module):
     def forward(self, x):  
         logits = []
         for bb_name, feat in self.feature_networks.items():
-            x_aug = DiffAugment(x,['translation', 'color']) if self.diff_aug else x
+            x_aug = DiffAugment(x,['translation', 'color', 'cutout']) if self.diff_aug else x
             x_aug = x_aug.add(1).div(2)
             x_n = Normalize(feat.normstats['mean'], feat.normstats['std'])(x_aug)
             

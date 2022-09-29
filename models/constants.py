@@ -42,7 +42,7 @@ TORCHVISION = [
     "repvgg_b1g4",
     "revnet",
     "dm_nfnet_f1",
-    "nfnet_l0",
+    "nfnet_l0"
 ]
 
 REGNETS = [
@@ -95,17 +95,22 @@ EFFNETS_INCEPTION = [
     'efficientnet_b2_pruned',
     'efficientnet_b3_pruned',
 ]
-
+CONVNEXT = [
+    'convnext_base_in22ft1k'
+]
 EFFNETS = EFFNETS_IMAGENET + EFFNETS_INCEPTION
 
 VITS_IMAGENET = [
     'deit_tiny_distilled_patch16_224',
     'deit_small_distilled_patch16_224',
     'deit_base_distilled_patch16_224',
+    'swinv2_base_window12to16_192to256_22kft1k'
+
 ]
 
 VITS_INCEPTION = [
-    'vit_base_patch16_224'
+    'vit_base_patch16_224',
+    'vit_base_patch8_224'
 ]
 
 VITS = VITS_IMAGENET + VITS_INCEPTION
@@ -114,11 +119,11 @@ CLIP = [
     'resnet50_clip'
 ]
 
-ALL_MODELS = TORCHVISION + REGNETS + EFFNETS + VITS + CLIP
+ALL_MODELS = TORCHVISION + REGNETS + CONVNEXT + EFFNETS + VITS + CLIP
 
 # Group according to input normalization
 
-NORMALIZED_IMAGENET = TORCHVISION + REGNETS + EFFNETS_IMAGENET + VITS_IMAGENET
+NORMALIZED_IMAGENET = TORCHVISION + REGNETS + CONVNEXT + EFFNETS_IMAGENET + VITS_IMAGENET
 
 NORMALIZED_INCEPTION = EFFNETS_INCEPTION + VITS_INCEPTION
 

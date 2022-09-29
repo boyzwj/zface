@@ -1,4 +1,5 @@
 from operator import mod
+from statistics import mode
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,7 +10,7 @@ import timm
 
 from models import clip
 from models.vit import _make_vit_b16_backbone, forward_vit
-from models.constants import ALL_MODELS, VITS, EFFNETS, REGNETS
+from models.constants import ALL_MODELS, VITS, EFFNETS, REGNETS,CONVNEXT
 
 def _feature_splitter(model, idcs):
     pretrained = nn.Module()
@@ -56,6 +57,17 @@ def _make_resnet_v2(model):
     pretrained.layer2 = model.stages[2]
     pretrained.layer3 = model.stages[3]
     return pretrained
+
+
+def _make_convnext(model):
+    pretrained = nn.Module()
+    pretrained.layer0 = nn.Sequential(model.stem, model.stages[0])
+    pretrained.layer1 = model.stages[1]
+    pretrained.layer2 = model.stages[2]
+    pretrained.layer3 = model.stages[3]
+    return pretrained
+
+
 
 def _make_resnet_clip(model):
     pretrained = nn.Module()
@@ -394,6 +406,10 @@ def _make_pretrained(backbone, verbose=False):
     elif backbone in REGNETS:
         model = timm.create_model(backbone, pretrained=True)
         pretrained = _make_regnet(model)
+        
+    elif backbone in CONVNEXT:
+        model = timm.create_model(backbone, pretrained=True)
+        pretrained = _make_convnext(model)        
 
     elif backbone in EFFNETS:
         model = timm.create_model(backbone, pretrained=True)
@@ -401,6 +417,7 @@ def _make_pretrained(backbone, verbose=False):
 
     elif backbone in VITS:
         model = timm.create_model(backbone, pretrained=True)
+        print(model)
         pretrained = _make_vit(model, backbone)
 
     elif backbone == 'resnet50_clip':

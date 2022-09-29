@@ -29,7 +29,7 @@ class HifiFaceLoss(LossInterface):
         super().__init__(args)
         self.W_adv = 0.125
         self.W_shape = 0.5
-        self.W_id = 5
+        self.W_id = 2
         self.W_recon = 25
         self.W_cycle = 1
         self.W_lpips = 5
