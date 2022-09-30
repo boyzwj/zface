@@ -43,12 +43,12 @@ class Zface(pl.LightningModule):
 
         self.G = HififaceGenerator(activation=cfg["activation"])
         self.D = ProjectedDiscriminator(im_res=self.size,backbones=['convnext_base_in22ft1k',
-                                                                    # 'tf_efficientnet_b2_ns',
-                                                                    'deit_base_distilled_patch16_224'
+                                                                    'maxvit_rmlp_tiny_rw_256'
+                                                                    # 'deit_base_distilled_patch16_224'
                                                                     ])    
                                                                         
 
-        self.blur_init_sigma = 2
+        self.blur_init_sigma = 0
         self.blur_fade_kimg = 100
 
         # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)

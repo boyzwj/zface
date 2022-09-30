@@ -408,7 +408,7 @@ def _make_pretrained(backbone, verbose=False):
         pretrained = _make_regnet(model)
         
     elif backbone in CONVNEXT:
-        model = timm.create_model(backbone, pretrained=True)
+        model = timm.create_model(backbone, pretrained=True,scriptable=True)
         pretrained = _make_convnext(model)        
 
     elif backbone in EFFNETS:

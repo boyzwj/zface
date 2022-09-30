@@ -96,7 +96,11 @@ EFFNETS_INCEPTION = [
     'efficientnet_b3_pruned',
 ]
 CONVNEXT = [
-    'convnext_base_in22ft1k'
+    'convnext_base_in22ft1k',
+    'maxvit_base_224',
+    'maxvit_large_224',
+    'maxvit_rmlp_tiny_rw_256'
+    
 ]
 EFFNETS = EFFNETS_IMAGENET + EFFNETS_INCEPTION
 

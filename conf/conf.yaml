@@ -1,5 +1,5 @@
-activation: lrelu
-batch_size: 6
+activation: mish
+batch_size: 4
 dataset: sexyface
 image_size: 256
 latent_dim: 512

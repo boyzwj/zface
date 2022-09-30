@@ -28,7 +28,8 @@ class DownBlock(nn.Module):
         super().__init__()
         self.main = nn.Sequential(
             nn.GroupNorm(32,in_planes),
-            nn.LeakyReLU(0.2,inplace=True),
+            # nn.LeakyReLU(0.2,inplace=True),
+            nn.Mish(inplace=True),
             conv2d(in_planes, out_planes*width, 4, 2, 1,bias=False)
         )
 
