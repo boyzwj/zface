@@ -17,6 +17,8 @@ from torch import nn
 from dataset import *
 from loss import *
 from models.gradnorm import normalize_gradient
+from lion_pytorch import Lion
+
 
 mean = torch.tensor([0.485, 0.456, 0.406])
 std = torch.tensor([0.229, 0.224, 0.225])
@@ -227,10 +229,10 @@ class Zface(pl.LightningModule):
 
     def configure_optimizers(self):
         # optimizer_list = []
-        optimizer_g = AdamW(self.G.parameters(), lr=self.lr, betas=(self.b1, self.b2))
-        # optimizer_list.append({"optimizer": optimizer_g})
-        optimizer_d = AdamW(self.D.parameters(), lr=self.lr * 0.8 , betas=(self.b1, self.b2))
-        # optimizer_list.append({"optimizer": optimizer_d})
+        # optimizer_g = AdamW(self.G.parameters(), lr=self.lr, betas=(self.b1, self.b2))
+        optimizer_g = Lion(self.G.parameters(), lr=self.lr)
+        # optimizer_d = AdamW(self.D.parameters(), lr=self.lr * 0.8 , betas=(self.b1, self.b2))
+        optimizer_d = Lion(self.D.parameters(), lr=self.lr)
         scheduler_g = CosineAnnealingWarmRestarts(optimizer=optimizer_g,T_0=5,T_mult=2,verbose=True)
         scheduler_d = CosineAnnealingWarmRestarts(optimizer=optimizer_d,T_0=5,T_mult=2,verbose=True)
         return [optimizer_g,optimizer_d],[scheduler_g,scheduler_d]

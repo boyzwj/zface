@@ -189,7 +189,7 @@ class HifiFaceDataset2(Dataset):
 
 
 class Ds(Dataset):
-    def __init__(self, path, resolution=256, same_prob=0.5):
+    def __init__(self, path, resolution=256, same_prob=0.2):
         self.path = path
         self.same_prob = same_prob
         self.resolution = resolution

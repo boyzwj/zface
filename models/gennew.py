@@ -144,10 +144,10 @@ class PreNorm(nn.Module):
         return self.fn(self.norm(x))
     
     
-attn_and_ff = lambda chan: nn.Sequential(*[
-    Residual(PreNorm(chan, LinearAttention(chan))),
-    Residual(PreNorm(chan, nn.Sequential(nn.Conv2d(chan, chan * 2, 1), nn.Mish(inplace=True), nn.Conv2d(chan * 2, chan, 1))))
-])
+# attn_and_ff = lambda chan: nn.Sequential(*[
+#     Residual(PreNorm(chan, LinearAttention(chan))),
+#     Residual(PreNorm(chan, nn.Sequential(nn.Conv2d(chan, chan * 2, 1), nn.Mish(inplace=True), nn.Conv2d(chan * 2, chan, 1))))
+# ])
 
 
 
@@ -192,50 +192,50 @@ class GenResBlk(nn.Module):
 
 
     
-class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
-        super(ResBlock, self).__init__()     
-        main_module_list = []
-        main_module_list += [
-                nn.InstanceNorm2d(in_channel),
-                set_activate_layer(activation),
-                nn.Conv2d(in_channel,in_channel, 3, 1, 1),
-            ]
-        if down_sample:
-            main_module_list.append(nn.AvgPool2d(kernel_size=2))
-        elif up_sample:
-            main_module_list += [
-                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-                ]
+# class ResBlock(nn.Module):
+#     def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
+#         super(ResBlock, self).__init__()     
+#         main_module_list = []
+#         main_module_list += [
+#                 nn.InstanceNorm2d(in_channel),
+#                 set_activate_layer(activation),
+#                 nn.Conv2d(in_channel,in_channel, 3, 1, 1),
+#             ]
+#         if down_sample:
+#             main_module_list.append(nn.AvgPool2d(kernel_size=2))
+#         elif up_sample:
+#             main_module_list += [
+#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+#                 ]
 
-        main_module_list += [
-                nn.InstanceNorm2d(in_channel),
-                set_activate_layer(activation),
-                nn.Conv2d(in_channel,out_channel, 3, 1, 1)
-            ]            
-        if attention:
-             main_module_list += [
-                 ECA(out_channel)
-                #  CoordAtt(out_channel,out_channel)
-             ]
-        self.main_path = nn.Sequential(*main_module_list)
-        side_module_list = []
-        if in_channel != out_channel:
-            side_module_list += [nn.Conv2d(in_channel, out_channel, 1, 1, 0, bias=False)]
-        else:
-            side_module_list += [nn.Identity()]   
-        if down_sample:
-            side_module_list.append(nn.AvgPool2d(kernel_size=2))
-        elif up_sample:
-            side_module_list += [
-                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-                ]
-        self.side_path = nn.Sequential(*side_module_list)
+#         main_module_list += [
+#                 nn.InstanceNorm2d(in_channel),
+#                 set_activate_layer(activation),
+#                 nn.Conv2d(in_channel,out_channel, 3, 1, 1)
+#             ]            
+#         if attention:
+#              main_module_list += [
+#                  ECA(out_channel)
+#                 #  CoordAtt(out_channel,out_channel)
+#              ]
+#         self.main_path = nn.Sequential(*main_module_list)
+#         side_module_list = []
+#         if in_channel != out_channel:
+#             side_module_list += [nn.Conv2d(in_channel, out_channel, 1, 1, 0, bias=False)]
+#         else:
+#             side_module_list += [nn.Identity()]   
+#         if down_sample:
+#             side_module_list.append(nn.AvgPool2d(kernel_size=2))
+#         elif up_sample:
+#             side_module_list += [
+#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+#                 ]
+#         self.side_path = nn.Sequential(*side_module_list)
 
-    def forward(self, x):
-        x1 = self.main_path(x)
-        x2 = self.side_path(x)
-        return (x1 + x2) / math.sqrt(2)
+#     def forward(self, x):
+#         x1 = self.main_path(x)
+#         x2 = self.side_path(x)
+#         return (x1 + x2) / math.sqrt(2)
     
     
     
@@ -321,6 +321,18 @@ class ShapeAwareIdentityExtractor(nn.Module):
         return lm3d
 
 
+class GRN(nn.Module):
+    """ GRN (Global Response Normalization) layer
+    """
+    def __init__(self, dim):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.zeros(1, 1, 1, dim))
+        self.beta = nn.Parameter(torch.zeros(1, 1, 1, dim))
+
+    def forward(self, x):
+        Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True)
+        Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-6)
+        return self.gamma * (x * Nx) + self.beta + x
 
 
 class Block(nn.Module):
@@ -334,15 +346,15 @@ class Block(nn.Module):
         drop_path (float): Stochastic depth rate. Default: 0.0
         layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
     """
-    def __init__(self, dim, layer_scale_init_value=1e-6):
+    def __init__(self, dim):
         super().__init__()
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim) # pointwise/1x1 convs, implemented with linear layers
         self.act = nn.GELU()
+        self.grn = GRN(4 * dim)
         self.pwconv2 = nn.Linear(4 * dim, dim)
-        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim),dtype=torch.float),
-                                    requires_grad=True) if layer_scale_init_value > 0 else None
+
 
     def forward(self, x):
         input = x
@@ -351,9 +363,8 @@ class Block(nn.Module):
         x = self.norm(x)
         x = self.pwconv1(x)
         x = self.act(x)
+        x = self.grn(x)
         x = self.pwconv2(x)
-        if self.gamma is not None:
-            x = self.gamma * x
         x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
 
         x = input + x
