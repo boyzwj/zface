@@ -192,50 +192,50 @@ class GenResBlk(nn.Module):
 
 
     
-# class ResBlock(nn.Module):
-#     def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
-#         super(ResBlock, self).__init__()     
-#         main_module_list = []
-#         main_module_list += [
-#                 nn.InstanceNorm2d(in_channel),
-#                 set_activate_layer(activation),
-#                 nn.Conv2d(in_channel,in_channel, 3, 1, 1),
-#             ]
-#         if down_sample:
-#             main_module_list.append(nn.AvgPool2d(kernel_size=2))
-#         elif up_sample:
-#             main_module_list += [
-#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-#                 ]
+class ResBlock(nn.Module):
+    def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
+        super(ResBlock, self).__init__()     
+        main_module_list = []
+        main_module_list += [
+                nn.InstanceNorm2d(in_channel),
+                set_activate_layer(activation),
+                nn.Conv2d(in_channel,in_channel, 3, 1, 1),
+            ]
+        if down_sample:
+            main_module_list.append(nn.AvgPool2d(kernel_size=2))
+        elif up_sample:
+            main_module_list += [
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                ]
 
-#         main_module_list += [
-#                 nn.InstanceNorm2d(in_channel),
-#                 set_activate_layer(activation),
-#                 nn.Conv2d(in_channel,out_channel, 3, 1, 1)
-#             ]            
-#         if attention:
-#              main_module_list += [
-#                  ECA(out_channel)
-#                 #  CoordAtt(out_channel,out_channel)
-#              ]
-#         self.main_path = nn.Sequential(*main_module_list)
-#         side_module_list = []
-#         if in_channel != out_channel:
-#             side_module_list += [nn.Conv2d(in_channel, out_channel, 1, 1, 0, bias=False)]
-#         else:
-#             side_module_list += [nn.Identity()]   
-#         if down_sample:
-#             side_module_list.append(nn.AvgPool2d(kernel_size=2))
-#         elif up_sample:
-#             side_module_list += [
-#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-#                 ]
-#         self.side_path = nn.Sequential(*side_module_list)
+        main_module_list += [
+                nn.InstanceNorm2d(in_channel),
+                set_activate_layer(activation),
+                nn.Conv2d(in_channel,out_channel, 3, 1, 1)
+            ]            
+        if attention:
+             main_module_list += [
+                 ECA(out_channel)
+                #  CoordAtt(out_channel,out_channel)
+             ]
+        self.main_path = nn.Sequential(*main_module_list)
+        side_module_list = []
+        if in_channel != out_channel:
+            side_module_list += [nn.Conv2d(in_channel, out_channel, 1, 1, 0, bias=False)]
+        else:
+            side_module_list += [nn.Identity()]   
+        if down_sample:
+            side_module_list.append(nn.AvgPool2d(kernel_size=2))
+        elif up_sample:
+            side_module_list += [
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                ]
+        self.side_path = nn.Sequential(*side_module_list)
 
-#     def forward(self, x):
-#         x1 = self.main_path(x)
-#         x2 = self.side_path(x)
-#         return (x1 + x2) / math.sqrt(2)
+    def forward(self, x):
+        x1 = self.main_path(x)
+        x2 = self.side_path(x)
+        return x1 + x2
     
     
     
@@ -378,43 +378,38 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
 
         self.first =  nn.Sequential(
-            nn.Conv2d(3, 96, 4,4),
-            LayerNorm(96,eps=1e-6, data_format="channels_first")  
+            nn.Conv2d(3, 256, 4,4),
+            LayerNorm(256,eps=1e-6, data_format="channels_first")  
             ) 
 
         self.b1 = nn.Sequential(
-            Block(96),
-            Block(96),
+            Block(256),
         )#64
 
         self.b2 = nn.Sequential(
-            LayerNorm(96,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(96, 192, kernel_size=2, stride=2),
-            Block(192),
-            Block(192),
+            LayerNorm(256,eps=1e-6, data_format="channels_first"),
+            nn.Conv2d(256, 384, kernel_size=2, stride=2),
         )#32
 
         self.b3 = nn.Sequential(
-            LayerNorm(192,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(192, 384, kernel_size=2, stride=2),
-            Block(384),
-            Block(384),
-            Block(384),
-            Block(384),
-            Block(384),
-            Block(384),
-            Block(384), 
+            LayerNorm(384,eps=1e-6, data_format="channels_first"),
+            nn.Conv2d(384, 512, kernel_size=2, stride=2),
+            Block(512),
+            Block(512),
+            Block(512),
+            Block(512),
+            Block(512),
         )#16
 
         self.b4 = nn.Sequential(
-            LayerNorm(384,eps=1e-6, data_format="channels_first"),
-            nn.Conv2d(384, 768, kernel_size=2, stride=2),
-            Block(768),
-            Block(768),
+            LayerNorm(512,eps=1e-6, data_format="channels_first"),
+            nn.Conv2d(512, 1024, kernel_size=2, stride=2),
+            Block(1024),
+
         )#8
 
         self.skip = nn.Sequential(
-            Block(96)
+            Block(256),
         )#8
         # self.apply(self._init_weights)
         
@@ -436,11 +431,11 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, style_dim=659, activation='lrelu'):
         super(Decoder, self).__init__()
-        self.d1 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
-        self.d2 = GenResBlk(768, 768, up_sample=False, style_dim=style_dim,activation=activation)
-        self.d3 = GenResBlk(768, 384, up_sample=True, style_dim=style_dim,activation=activation)     
-        self.d4 = GenResBlk(384, 192, up_sample=True, style_dim=style_dim,activation=activation)    
-        self.d5 = GenResBlk(192, 96, up_sample=True, style_dim=style_dim,activation=activation)     
+        self.d1 = GenResBlk(1024, 512, up_sample=False, style_dim=style_dim,activation=activation)
+        self.d2 = GenResBlk(512, 512, up_sample=False, style_dim=style_dim,activation=activation)
+        self.d3 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)     
+        self.d4 = GenResBlk(512, 512, up_sample=True, style_dim=style_dim,activation=activation)    
+        self.d5 = GenResBlk(512, 256, up_sample=True, style_dim=style_dim,activation=activation)     
         self.apply(weight_init)
 
     def forward(self, x, s):
@@ -458,10 +453,10 @@ class Decoder(nn.Module):
 class FinalUp(nn.Module):
     def __init__(self, style_dim=659,activation = 'lrelu'):
         super(FinalUp, self).__init__()
-        self.u1 = GenResBlk(96, 96,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u2 = GenResBlk(96, 48,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u3 = GenResBlk(48, 48,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
-        self.u4 = GenResBlk(48, 48,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u1 = GenResBlk(256, 64,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u2 = GenResBlk(64, 16,  up_sample=True, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u3 = GenResBlk(16, 8,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
+        self.u4 = GenResBlk(8, 4,  up_sample=False, style_dim=style_dim,activation=activation,return_rgb=True)
         
     def forward(self, x,s,rgb = None):
         x,rgb  = self.u1(x,s,rgb)     
@@ -475,7 +470,7 @@ class FinalUp(nn.Module):
 class SemanticFacialFusionModule(nn.Module):
     def __init__(self, norm='in', activation='lrelu', style_dim=659):
         super(SemanticFacialFusionModule, self).__init__()
-        self.z_fuse_block_n  = GenResBlk(96, 96, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
+        self.z_fuse_block_n  = GenResBlk(256, 256, up_sample=False, style_dim=style_dim,return_rgb = True,activation=activation)
         self.f_up_n = FinalUp(activation=activation,style_dim=style_dim)
         self.apply(weight_init)
 

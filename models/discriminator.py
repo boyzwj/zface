@@ -157,12 +157,7 @@ class ProjectedDiscriminator(torch.nn.Module):
             discriminators.append([bb_name, disc])
 
         self.feature_networks = nn.ModuleDict(feature_networks)
-        self.feature_networks.eval()
-        self.feature_networks = self.feature_networks.train(False)
-        for param in self.feature_networks.parameters():
-            param.requires_grad = False
-
-
+        
         self.discriminators = nn.ModuleDict(discriminators)
         
         

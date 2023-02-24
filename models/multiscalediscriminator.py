@@ -89,12 +89,12 @@ class NLayerDiscriminator(nn.Module):
                 sequence_stream += sequence[n]
             self.model = nn.Sequential(*sequence_stream)
 
-    def forward(self, input):
+    def forward(self, x):
         if self.getIntermFeat:
-            res = [input]
+            res = [x]
             for n in range(self.n_layers + 2):
                 model = getattr(self, 'model' + str(n))
                 res.append(model(res[-1]))
             return res[1:]
         else:
-            return self.model(input)
+            return self.model(x)

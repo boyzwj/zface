@@ -13,6 +13,7 @@ from torch_utils.ops import upfirdn2d
 # from models.generator import HififaceGenerator
 from models.gennew import HififaceGenerator
 from models.discriminator import ProjectedDiscriminator
+from models.multiscalediscriminator import MultiscaleDiscriminator
 from torch import nn
 from dataset import *
 from loss import *
@@ -44,13 +45,14 @@ class Zface(pl.LightningModule):
 
 
         self.G = HififaceGenerator(activation=cfg["activation"])
-        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['convnext_base_in22ft1k',
-                                                                    'maxvit_rmlp_tiny_rw_256'
+        # self.D  = MultiscaleDiscriminator(3)
+        self.D = ProjectedDiscriminator(im_res=self.size,backbones=['tf_efficientnet_lite0',
+                                                                    'deit_base_distilled_patch16_224'
                                                                     # 'deit_base_distilled_patch16_224'
                                                                     ])    
                                                                         
 
-        self.blur_init_sigma = 0
+        self.blur_init_sigma = 2
         self.blur_fade_kimg = 100
 
         # self.G.load_state_dict(torch.load("./weights/G.pth"),strict=False)
@@ -134,7 +136,7 @@ class Zface(pl.LightningModule):
         blur_sigma = max(1 - self.global_step / (self.blur_fade_kimg * 1e3), 0) * self.blur_init_sigma if self.blur_fade_kimg > 1 else 0
 
         I_swapped_high,I_swapped_low,c_fuse,id_source = self.G(I_source, I_target,mask_target)
-        I_cycle = self.G(I_source,I_swapped_high,mask_target)[0]
+        I_cycle = self.G(I_target,I_swapped_high,mask_target)[0]
         # Arcface 
         id_swapped_low = self.G.SAIE.get_id(I_swapped_low)
         id_swapped_high = self.G.SAIE.get_id(I_swapped_high)
@@ -229,10 +231,13 @@ class Zface(pl.LightningModule):
 
     def configure_optimizers(self):
         # optimizer_list = []
+        
+        optimizer_g = Lion(self.G.parameters(), lr=self.lr, betas=(self.b1, self.b2))
+        optimizer_d = Lion(self.D.parameters(), lr=self.lr, betas=(self.b1, self.b2))
+        
         # optimizer_g = AdamW(self.G.parameters(), lr=self.lr, betas=(self.b1, self.b2))
-        optimizer_g = Lion(self.G.parameters(), lr=self.lr)
         # optimizer_d = AdamW(self.D.parameters(), lr=self.lr * 0.8 , betas=(self.b1, self.b2))
-        optimizer_d = Lion(self.D.parameters(), lr=self.lr)
+
         scheduler_g = CosineAnnealingWarmRestarts(optimizer=optimizer_g,T_0=5,T_mult=2,verbose=True)
         scheduler_d = CosineAnnealingWarmRestarts(optimizer=optimizer_d,T_0=5,T_mult=2,verbose=True)
         return [optimizer_g,optimizer_d],[scheduler_g,scheduler_d]
