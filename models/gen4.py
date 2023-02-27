@@ -145,15 +145,15 @@ from timm.models.layers import trunc_normal_
 #         return self.fn(self.norm(x))
     
 class AdaptiveAttention(nn.Module):
-    def __init__(self,in_channel,out_channel):
+    def __init__(self,in_channel):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channel,in_channel, 3, 1, 1),
+        self.conv1 = nn.Conv2d(in_channel*2,in_channel//4, 3, 1, 1)
         self.actv1 = nn.LeakyReLU(0.2,inplace=True)
-        self.norm1 = nn.InstanceNorm2d(in_channel)
-        self.conv2 = nn.Conv2d(in_channel, out_channel, 1, 1, 0, bias=False)
+        self.norm1 = nn.InstanceNorm2d(in_channel//4)
+        self.conv2 = nn.Conv2d(in_channel//4, in_channel, 1, 1, 0)
     
     def forward(self, a, i):
-        m = torch.cat([a,i],dim=1)
+        m = torch.cat((a,i),dim=1)
         m = self.conv1(m)
         m = self.actv1(m)
         m = self.norm1(m)
@@ -171,8 +171,8 @@ class AdaIN(nn.Module):
     def forward(self,x, w):
         w1 = self.style1(w)
         w2 = self.style2(w)
-        ys = w1.reshape(-1, 1, 1, self.channel)
-        yb = w2.reshape(-1, 1, 1, self.channel)
+        ys = w1.reshape(-1, self.channel, 1, 1)
+        yb = w2.reshape(-1, self.channel, 1, 1)
         return ys * x + yb
         
         
@@ -184,55 +184,63 @@ class AdaIN(nn.Module):
 class AdaptiveFusionUpBlock(nn.Module):
     def __init__(self,in_channel,out_channel,style_dim = 512,up_sample=False):
         super().__init__()
-        self.up_sample = up_sample
-        self.adaptive_attention = AdaptiveAttention(in_channel,in_channel)
+        self.adaptive_attention = AdaptiveAttention(in_channel)
         self.normalize = nn.InstanceNorm2d(out_channel)
         self.active = nn.LeakyReLU(0.2,inplace=True)
-        self.adaIn = AdaIN(out_channel,style_dim)
-        self.conv1 = nn.Conv2d(in_channel,out_channel, 3, 1, 1)
-        self.conv2 = nn.Conv2d(in_channel,out_channel, 1, 1, 0,bias=False)
+        self.adaIn = AdaIN(in_channel,style_dim)
+        if up_sample:
+            self.conv1 = nn.Sequential(
+                nn.Conv2d(in_channel,out_channel, 3, 1, 1),
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                )                  
+            self.conv2 = nn.Sequential(
+                nn.Conv2d(in_channel,out_channel, 1, 1, 0,bias=False),
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                )
+        else:
+            self.conv1 = nn.Conv2d(in_channel,out_channel, 3, 1, 1)
+            self.conv2 = nn.Conv2d(in_channel,out_channel, 1, 1, 0,bias=False)
         
     def forward(self,x_t,x_s,z_id):
         x = self.adaptive_attention(x_t,x_s)
         r = self.conv2(x) 
-        if self.up_sample:
-            r = F.interpolate(r, scale_factor=2, mode='bilinear')
         x = self.normalize(x)
         x = self.adaIn(x,z_id)
         x = self.active(x)
         x = self.conv1(x)
-        if self.up_sample:
-            r = F.interpolate(x, scale_factor=2, mode='bilinear')
         return x + r
     
 
 class AdaptiveFusionUpBlockConcat(nn.Module):
-    def __init__(self,dim_in,dim_out,up_sample=False) -> None:
+    def __init__(self,dim_in,dim_out,style_dim = 256,up_sample=False) -> None:
         super().__init__()
-        self.conv1x1 = nn.Conv2d(dim_in, dim_out, 1, 1, 0, bias=False)
+        if up_sample is False:
+            self.conv1x1 = nn.Conv2d(dim_in*2, dim_out, 1, 1, 0, bias=False)
+            self.conv = nn.Conv2d(dim_in*2, dim_out, 3, 1, 1)
+        else:
+            self.conv1x1 = nn.Sequential(
+                nn.Conv2d(dim_in*2, dim_out, 1, 1, 0, bias=False),
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+            )
+            self.conv = nn.Sequential(
+                nn.Conv2d(dim_in*2, dim_out, 3, 1, 1),
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+            )
         self.norm = nn.InstanceNorm2d(dim_out)
-        self.adaIn = AdaIN(dim_out)
+        self.adaIn = AdaIN(dim_in*2,style_dim)
         self.active = nn.LeakyReLU(0.2,inplace=True)
-        self.up_sample = up_sample
+
     
     def forward(self,x_t,x_s,z_id):
-        x = torch.cat([x_t,x_s],dim=1)
+        x = torch.cat((x_t,x_s),dim=1)
         r = self.conv1x1(x)
-        if self.up_sample:
-            r = F.interpolate(r, scale_factor=2, mode='bilinear')
         x = self.norm(x)
         x = self.adaIn(x,z_id)
         x = self.active(x)
-        if self.up_sample:
-            x = F.interpolate(x, scale_factor=2, mode='bilinear')
+        x = self.conv(x)
         return x + r
         
         
-        
-    
-     
-     
-     
 class ResBlock(nn.Module):
     def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False):
         super(ResBlock, self).__init__()     
@@ -282,26 +290,32 @@ class AdaInUpBlock(nn.Module):
         self.normalize = nn.InstanceNorm2d(channel)
         self.active = nn.LeakyReLU(0.2,inplace=True)
         self.adaIn = AdaIN(channel,style_dim)
-        self.conv1 = nn.Conv2d(channel,channel, 3, 1, 1)
-        self.conv2 = nn.Conv2d(channel,channel, 1, 1, 0,bias=False)
+        if up_sample:
+            self.conv2 = nn.Sequential(
+                nn.Conv2d(channel,channel, 1, 1, 0,bias=False),
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                )
+            self.conv1 = nn.Sequential(
+                nn.Conv2d(channel,channel, 3, 1, 1),
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+                )
+        else:
+            self.conv2 = nn.Conv2d(channel,channel, 1, 1, 0,bias=False)
+            self.conv1 = nn.Conv2d(channel,channel, 3, 1, 1)
         
     def forward(self,x,z_id):
         r = self.conv2(x) 
-        if self.up_sample:
-            r = F.interpolate(r, scale_factor=2, mode='bilinear')
         x = self.normalize(x)
         x = self.adaIn(x,z_id)
         x = self.active(x)
         x = self.conv1(x)
-        if self.up_sample:
-            r = F.interpolate(x, scale_factor=2, mode='bilinear')
         return x + r        
         
         
 class Generator(nn.Module):
-   def __init__(self) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.mapping = nn.ModuleList([
+        self.mapping = nn.Sequential(
              nn.Linear(512,256),
              nn.LeakyReLU(0.2,inplace=True),
              nn.Linear(256,256),
@@ -311,26 +325,41 @@ class Generator(nn.Module):
              nn.Linear(256,256),
              nn.LeakyReLU(0.2,inplace=True),
              nn.Linear(256,256),
-        ])
-        self.conv1 = nn.Conv2d(3,64,1,1,0,bias=False)
-        self.ResBlock1 = ResBlock(64, 128, down_sample=True)
-        self.ResBlock2 = ResBlock(128, 256, down_sample=True)
-        self.ResBlock3 = ResBlock(256, 512, down_sample=True)
-        self.ResBlock4 = ResBlock(512, 512, down_sample=True)
-        self.ResBlock5 = ResBlock(512, 512, down_sample=True)
-        self.ResBlock6 = ResBlock(512, 512)
+        )
+        self.conv1 = nn.Conv2d(3,64,1,1,0,bias=False)           #64 256 256
+        self.ResBlock1 = ResBlock(64, 128, down_sample=True)    #128 128 128
+        self.ResBlock2 = ResBlock(128, 256, down_sample=True)   #256 64 64
+        self.ResBlock3 = ResBlock(256, 512, down_sample=True)   #512 32 32
+        self.ResBlock4 = ResBlock(512, 512, down_sample=True)   #512 16 16
+        self.ResBlock5 = ResBlock(512, 512, down_sample=True)   #512 8 8
+        self.ResBlock6 = ResBlock(512, 512, down_sample=False)  #512 8 8
 
-        self.bn = nn.ModuleList([
-             AdaInUpBlock(512,style_dim=256,up_sample=False),
-             AdaInUpBlock(512,style_dim=256,up_sample=True),
-             AdaInUpBlock(512,style_dim=256,up_sample=True)
-        ])  
-        self.u2 = AdaptiveFusionUpBlock(512,256,style_dim=256,up_sample=True)
-        self.u1 = AdaptiveFusionUpBlock(256,128,style_dim=256,up_sample=True)
-        self.u0 = AdaptiveFusionUpBlock(128,64,style_dim=256,up_sample=True)
-        self.final = AdaptiveFusionUpBlockConcat(64,3,style_dim=256,up_sample=False)
+        self.u5 = AdaInUpBlock(512,style_dim=256,up_sample=False)  #512 8 8
+        self.u4 = AdaInUpBlock(512,style_dim=256,up_sample=True)   #512 16 16
+        self.u3 = AdaInUpBlock(512,style_dim=256,up_sample=True)   #512 32 32
+        self.u2 = AdaptiveFusionUpBlock(512,256,style_dim=256,up_sample=True)  #256 64 64
+        self.u1 = AdaptiveFusionUpBlock(256,128,style_dim=256,up_sample=True)  #128 128 128
+        self.u0 = AdaptiveFusionUpBlock(128,64,style_dim=256,up_sample=True)   #64 256 256
+        self.final = AdaptiveFusionUpBlockConcat(64,3,style_dim=256,up_sample=False)  #3 256 256
     
-       
+    def forward(self,x,z_id):
+        z_id = self.mapping(z_id)
+        x_0 = self.conv1(x)
+        x_1 = self.ResBlock1(x_0)
+        x_2 = self.ResBlock2(x_1)
+        x_3 = self.ResBlock3(x_2)
+        x_4 = self.ResBlock4(x_3)
+        x_5 = self.ResBlock5(x_4)
+        x_6 = self.ResBlock6(x_5)
+        u_5 = self.u5(x_6,z_id)
+        u_4 = self.u4(u_5,z_id)
+        u_3 = self.u3(u_4,z_id)
+        u_2 = self.u2(x_3,u_3,z_id)
+        u_1 = self.u1(x_2,u_2,z_id)
+        u_0 = self.u0(x_1,u_1,z_id)
+        out = self.final(x_0,u_0,z_id)
+        return out
+        
        
        
        

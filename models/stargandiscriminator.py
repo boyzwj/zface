@@ -3,7 +3,6 @@ import numpy as np
 import torch.nn.functional as F
 import math
 from models.ca import ECA
-from inplace_abn import InPlaceABN
 
 class ResBlock(nn.Module):
     def __init__(self, in_channel, out_channel, down_sample=False, up_sample=False,attention = False,activation='lrelu'):
@@ -50,14 +49,14 @@ class ResBlock(nn.Module):
         return (x1 + x2) / math.sqrt(2)
 
 class StarGANv2Discriminator(nn.Module):
-    def __init__(self, img_size=256, max_conv_dim=512):
+    def __init__(self, im_res=256, max_conv_dim=512):
         super().__init__()
-        dim_in = 2**14 // img_size
+        dim_in = 2**14 // im_res
 
         blocks = []
         blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
 
-        repeat_num = int(np.log2(img_size)) - 2
+        repeat_num = int(np.log2(im_res)) - 2
 
         for _ in range(repeat_num):
             dim_out = min(dim_in*2, max_conv_dim)

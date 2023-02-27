@@ -2,7 +2,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint,LearningRateMonitor
 
-from model import Zface
+from facedancer import Zface
 import yaml
 import os
 

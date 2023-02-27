@@ -1,9 +1,9 @@
 activation: lrelu
-batch_size: 4
+batch_size: 8
 dataset: sexyface
 image_size: 256
 latent_dim: 512
-learning_rate: 6.0e-05
+learning_rate: 0.0001
 preview_num: 8
 resume: false
 train_name: '02'
