@@ -129,7 +129,6 @@ def _make_cspresnet(model):
 
 def _make_efficientnet(model):
     pretrained = nn.Module()
-    # print(model)
     pretrained.layer0 = nn.Sequential(
         model.conv_stem,
         model.bn1,
@@ -417,7 +416,6 @@ def _make_pretrained(backbone, verbose=False):
 
     elif backbone in VITS:
         model = timm.create_model(backbone, pretrained=True)
-        print(model)
         pretrained = _make_vit(model, backbone)
 
     elif backbone == 'resnet50_clip':

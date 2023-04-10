@@ -313,18 +313,18 @@ class AdaInUpBlock(nn.Module):
         
         
 class Generator(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self,style_dim = 512) -> None:
         super().__init__()
         self.mapping = nn.Sequential(
-             nn.Linear(512,256),
+             nn.Linear(512,style_dim),
              nn.LeakyReLU(0.2,inplace=True),
-             nn.Linear(256,256),
+             nn.Linear(style_dim,style_dim),
              nn.LeakyReLU(0.2,inplace=True),
-             nn.Linear(256,256),
+             nn.Linear(style_dim,style_dim),
              nn.LeakyReLU(0.2,inplace=True),
-             nn.Linear(256,256),
+             nn.Linear(style_dim,style_dim),
              nn.LeakyReLU(0.2,inplace=True),
-             nn.Linear(256,256),
+             nn.Linear(style_dim,style_dim),
         )
         self.conv1 = nn.Conv2d(3,64,1,1,0,bias=False)           #64 256 256
         self.ResBlock1 = ResBlock(64, 128, down_sample=True)    #128 128 128
@@ -334,13 +334,13 @@ class Generator(nn.Module):
         self.ResBlock5 = ResBlock(512, 512, down_sample=True)   #512 8 8
         self.ResBlock6 = ResBlock(512, 512, down_sample=False)  #512 8 8
 
-        self.u5 = AdaInUpBlock(512,style_dim=256,up_sample=False)  #512 8 8
-        self.u4 = AdaInUpBlock(512,style_dim=256,up_sample=True)   #512 16 16
-        self.u3 = AdaInUpBlock(512,style_dim=256,up_sample=True)   #512 32 32
-        self.u2 = AdaptiveFusionUpBlock(512,256,style_dim=256,up_sample=True)  #256 64 64
-        self.u1 = AdaptiveFusionUpBlock(256,128,style_dim=256,up_sample=True)  #128 128 128
-        self.u0 = AdaptiveFusionUpBlock(128,64,style_dim=256,up_sample=True)   #64 256 256
-        self.final = AdaptiveFusionUpBlockConcat(64,3,style_dim=256,up_sample=False)  #3 256 256
+        self.u5 = AdaInUpBlock(512,style_dim=style_dim,up_sample=False)  #512 8 8
+        self.u4 = AdaInUpBlock(512,style_dim=style_dim,up_sample=True)   #512 16 16
+        self.u3 = AdaInUpBlock(512,style_dim=style_dim,up_sample=True)   #512 32 32
+        self.u2 = AdaptiveFusionUpBlock(512,256,style_dim=style_dim,up_sample=True)  #256 64 64
+        self.u1 = AdaptiveFusionUpBlock(256,128,style_dim=style_dim,up_sample=True)  #128 128 128
+        self.u0 = AdaptiveFusionUpBlock(128,64,style_dim=style_dim,up_sample=True)   #64 256 256
+        self.final = AdaptiveFusionUpBlockConcat(64,3,style_dim=style_dim,up_sample=False)  #3 256 256
     
     def forward(self,x,z_id):
         z_id = self.mapping(z_id)

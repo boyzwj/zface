@@ -221,14 +221,14 @@ class Zface(pl.LightningModule):
 
 
             
-    def training_epoch_end(self, outputs) :
+    def on_train_epoch_end(self, outputs) :
         sch1, sch2 = self.lr_schedulers()
         if isinstance(sch1,CosineAnnealingWarmRestarts):
             sch1.step()
         if isinstance(sch2,CosineAnnealingWarmRestarts):
             sch2.step()
-        return super().training_epoch_end(outputs)
-
+        return super().on_train_epoch_end(outputs) 
+    
     def configure_optimizers(self):
         # optimizer_list = []
         

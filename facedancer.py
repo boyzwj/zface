@@ -6,6 +6,7 @@ from torch_utils.ops import upfirdn2d
 from models.face_models.iresnet import iresnet100,iresnet50
 from models.gen4 import Generator
 from models.stargandiscriminator import StarGANv2Discriminator
+from models.dino_discriminator import ProjectedDiscriminator
 from models.multiscalediscriminator import MultiscaleDiscriminator
 from torch import nn
 from dataset import *
@@ -37,13 +38,16 @@ class Zface(pl.LightningModule):
         self.b2 = b2
         self.batch_size = cfg["batch_size"]
         self.preview_num = cfg["preview_num"]        
-        self.G = torch.jit.script(Generator())
+        self.G = Generator()
     
     
-        self.D = StarGANv2Discriminator(im_res=self.size)
+        self.D = ProjectedDiscriminator()
         
-        self.F_id =  torch.jit.script(iresnet100(pretrained=False, fp16=True))
-        self.F_id.load_state_dict(torch.load('./weights/r100.pth'))
+        # self.F_id = iresnet100(pretrained=False, fp16=True)
+        # self.F_id.load_state_dict(torch.load('./weights/r100.pth'))
+
+        self.F_id = iresnet50(pretrained=False, fp16=True)
+        self.F_id.load_state_dict(torch.load('./weights/backbone_r50.pth'))
         self.F_id.eval()                                                             
 
         self.blur_init_sigma = 2
@@ -117,24 +121,19 @@ class Zface(pl.LightningModule):
     
     
     def training_step(self, batch, batch_idx):
-        opt_g, opt_d = self.optimizers(use_pl_optimizer=True)
         I_source,I_target,mask_target, same_person = batch
-        if self.src_img == None:
-            self.src_img = I_source[:3]
-            self.dst_img = I_target[:3]
-            self.dst_msk = mask_target[:3]
-            
-        self.process_cmd()
-
+        opt_g, opt_d = self.optimizers()
         blur_sigma = max(1 - self.global_step / (self.blur_fade_kimg * 1e3), 0) * self.blur_init_sigma if self.blur_fade_kimg > 1 else 0
         source_z = self.get_id(I_source)
         target_z = self.get_id(I_target)
+
+        self.toggle_optimizer(opt_g)
         I_swapped = self.G(I_target,source_z)        
         I_cycle = self.G(I_swapped,target_z)
         z_swapped = self.get_id(I_swapped)
         
-        I_source.requires_grad_()
-        real_output = self.run_D(I_source,blur_sigma = blur_sigma)
+        # I_source.requires_grad_()
+        # real_output = self.run_D(I_source,blur_sigma = blur_sigma)
         fake_output = self.run_D(I_swapped,blur_sigma = blur_sigma)
         G_dict = {
             "I_source": I_source,
@@ -142,18 +141,20 @@ class Zface(pl.LightningModule):
             "I_swapped": I_swapped,
             "I_cycle": I_cycle,
             "d_fake": fake_output,
-            "d_real": real_output,
+            # "d_real": real_output,
             "z_source": source_z,
             "z_swapped": z_swapped,
             "same_person": same_person,
         }
         
         g_loss = self.loss.get_loss_G(G_dict)
-        opt_g.zero_grad(set_to_none=True)
+
         self.manual_backward(g_loss)
         opt_g.step()
+        opt_g.zero_grad(set_to_none=True)
+        self.untoggle_optimizer(opt_g)
         
-        
+        self.toggle_optimizer(opt_d)
         I_target.requires_grad_()
         d_true = self.run_D(I_target,blur_sigma = blur_sigma)
         d_fake = self.run_D(I_swapped.detach(),blur_sigma = blur_sigma)
@@ -164,20 +165,30 @@ class Zface(pl.LightningModule):
         }
 
         d_loss = self.loss.get_loss_D(D_dict)    
-        opt_d.zero_grad(set_to_none=True)
         self.manual_backward(d_loss)
         opt_d.step()
+        opt_d.zero_grad(set_to_none=True)
+        self.untoggle_optimizer(opt_d)
         self.log_dict(self.loss.loss_dict)
+
         
-    def training_epoch_end(self, outputs) :
+    def on_train_epoch_end(self, outputs) :
         sch1, sch2 = self.lr_schedulers()
         if isinstance(sch1,CosineAnnealingWarmRestarts):
             sch1.step()
         if isinstance(sch2,CosineAnnealingWarmRestarts):
             sch2.step()
-        return super().training_epoch_end(outputs) 
+        return super().on_train_epoch_end(outputs) 
     
-
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        I_source,I_target,mask_target, same_person = batch
+        if self.src_img == None:
+            self.src_img = I_source[:3]
+            self.dst_img = I_target[:3]
+            self.dst_msk = mask_target[:3]
+            
+        self.process_cmd()
+        return super().on_train_batch_end(outputs, batch, batch_idx)
 
     def configure_optimizers(self):
         # optimizer_list = []

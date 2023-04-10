@@ -20,7 +20,7 @@ class DancerLoss(LossInterface):
     def __init__(self, args):
         super().__init__(args)
         self.W_adv = 1
-        self.W_id = 10
+        self.W_id = 15
         self.W_recon = 5
         self.W_cycle = 1
         self.W_lpips = 0.2
